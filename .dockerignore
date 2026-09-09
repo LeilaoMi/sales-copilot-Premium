@@ -1,0 +1,29 @@
+# Docker 构建上下文排除清单（配合 deploy/Dockerfile，上下文 = 仓库根）
+#
+# 为什么必须有这个文件：Dockerfile 里是 `COPY . .`，构建上下文有什么，镜像层里就有什么。
+# data/ 是 server 落盘的真实客户姓名 / 电话 / 微信 —— 一旦被打进镜像层，
+# 后面就算改掉 Dockerfile 也留在历史 layer 里，跟着 push 到镜像仓库就是永久泄露。
+# 这类事只能靠「默认不带」挡住，不能靠人记得加参数。
+
+# ── 隐私：真实数据与凭证，永远不进镜像 ──
+data/
+.env
+.env.*
+
+# ── 构建产物：镜像里用的是源码目录本身（server.js 拿它当静态站点根）
+#    public/ 是 Pages 部署产物，塞进来只会让镜像变大且和源码不一致 ──
+public/
+node_modules/
+
+# ── 版本库与工具缓存：体积大、含机器路径，运行期一概用不到 ──
+.git/
+.github/
+.wrangler/
+.vercel/
+.netlify/
+
+# ── 杂项 ──
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

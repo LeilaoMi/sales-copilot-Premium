@@ -2,14 +2,20 @@
 #
 # 安装步骤：
 #   1. 把项目放到 /opt/sales-copilot
-#   2. 复制本文件到 /etc/systemd/system/sales-copilot.service
-#   3. 修改下面的 SYNC_TOKEN（不设就是多人模式）
-#   4. 执行：
+#   2. mkdir -p /opt/sales-copilot/data
+#      chown -R www-data:www-data /opt/sales-copilot/data
+#      （下面 ProtectSystem=strict 只放开这一个目录；不建好属主，
+#        服务写不进磁盘会静默退化成内存存储，重启就丢数据 —— 务必先建）
+#   3. 复制本文件到 /etc/systemd/system/sales-copilot.service
+#   4. 修改下面的 SYNC_TOKEN（不设就是多人模式）
+#   5. 执行：
 #        sudo systemctl daemon-reload
 #        sudo systemctl enable --now sales-copilot
 #        sudo systemctl status sales-copilot
-#   5. 看日志：sudo journalctl -u sales-copilot -f
-#   6. 看令牌：cat /opt/sales-copilot/data/token.txt
+#   6. 看日志：sudo journalctl -u sales-copilot -f
+#   7. 看令牌：cat /opt/sales-copilot/data/token.txt
+#   起来后先验一眼存储是不是 file：curl -s localhost:8080/api/health
+#   返回里 "storage":"file" 才算落盘，"memory" 就是上面那条没做。
 
 [Unit]
 Description=销冠助手同步服务
@@ -23,7 +29,7 @@ Environment=PORT=8080
 Environment=SYNC_TOKEN=change-me-to-a-long-random-string
 # 多人模式：把上面那行注释掉即可，任意 >=8 位令牌各自独立存一份
 
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node server/server.js
 Restart=always
 RestartSec=3
 
