@@ -71,7 +71,7 @@ window.Store = (function () {
     return {
       version: 1,
       settings: {
-        owner: '张伟', monthlyTarget: 300000, commissionRate: 3, company: '个人销售',
+        owner: '张伟', monthlyTarget: 300000, commissionRate: 3,
         ai: { enabled: false, base: 'https://api.deepseek.com/v1', key: '', model: 'deepseek-chat' },
         pwa: false,
         // 健康度：sensitivity 越小越严格（0.7 严格 / 1 标准 / 1.5 宽松）
