@@ -20,7 +20,13 @@
 # 详细步骤见 DEPLOY.md。
 # ============================================================
 
-name = "sales-copilot"
+# Pages 项目名。以 `wrangler pages project list` 的输出为准，别凭记忆写 ——
+# 之前这里是旧名 sales-copilot，账号下的真实项目早改成了 sales-copilot-premium，
+# 于是按本文件走命令行部署会直接报 Project not found [code: 8000007]。
+#
+# 顺带一句：GitHub 仓库改名**不影响**后台的 Git 自动部署 ——
+# Pages 绑定存的是仓库的永久 ID，不是名字，所以只有这里的名字要跟着改。
+name = "sales-copilot-premium"
 
 # 部署出去的目录。
 #
@@ -32,9 +38,11 @@ name = "sales-copilot"
 #
 # 所以固定只传 public/，里面只有站点本身那几个文件。
 #
-# ⚠️ public/ 里现在只有 _headers，直接部署会是个空站。
-#    部署前要先把站点文件拷进去（这一步在 DEPLOY.md 里有原样可抄的命令）：
-#      cp index.html styles.css manifest.json *.js *.png public/
+# ⚠️ public/ 是构建产物（已 gitignore），每次构建先清空，别手动往里 cp：
+#    人会忘，忘了也不报错，只会表现为线上还是上一版。固定用这一条：
+#      node tools/build.js --pages
+#    它按 index.html 的实际引用复制资源、把 deploy/_headers 的缓存规则复制过来、
+#    重写 sw.js 的预缓存清单，并且一旦 public/ 里出现 data/ 或业务 JSON 就直接报错拦下。
 pages_build_output_dir = "public"
 
 # Pages 项目照惯例带上，写部署当天就行。

@@ -191,6 +191,9 @@ npx wrangler pages deploy public
 ```
 
 `wrangler.toml` 里已经写好了项目名和输出目录，不用加参数。
+不确定名字对不对就先列一遍：`npx wrangler pages project list`
+（对不上就是 `Project not found [code: 8000007]`，改 `wrangler.toml` 的 `name`，
+别在命令上硬加 `--project-name` 掩过去）。
 
 ### 最后：把 Supabase 填进应用
 
@@ -507,7 +510,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://IP:8080/data/backups/
 | 文件 | 作用 |
 |---|---|
 | `deploy/_headers` | Cloudflare Pages 缓存规则的**源文件**，构建时复制成 `public/_headers`。**改缓存改这份** |
-| `wrangler.toml` | Cloudflare Pages 项目配置（`name=sales-copilot`、`pages_build_output_dir=public`），命令行部署时用 |
+| `wrangler.toml` | Cloudflare Pages 项目配置（`name=sales-copilot-premium`、`pages_build_output_dir=public`），命令行部署时用。项目名以 `wrangler pages project list` 为准，写错了 wrangler 只会报 Project not found |
 | `vercel.json` | Vercel 的项目与缓存配置（理由见第 7 节） |
 | `tools/build.js` | 两个产物的唯一入口：单文件 HTML、`public/` 部署目录（顺带复制 `_headers`、重写 `sw.js` 清单、做 `data/` 泄漏检查） |
 | `sw.js` | Service Worker，缓存桶 `sales-copilot-v3`，`html/js/css/根路径` 走网络优先 |

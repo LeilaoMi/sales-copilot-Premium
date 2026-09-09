@@ -286,11 +286,11 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 ```
 sales-copilot-Premium/
-├── index.html            唯一页面 + 页签 + 脚本加载顺序（顺序有依赖，注释写明了为什么）
+├── index.html              唯一页面 + 页签 + 脚本加载顺序（顺序有依赖，注释写明了为什么）
 ├── manifest.json           PWA 清单
 ├── sw.js                   Service Worker，缓存桶 sales-copilot-v3
 ├── vercel.json             Vercel 缓存与项目配置（理由见 DEPLOY.md 第 7 节）
-├── wrangler.toml           Cloudflare Pages 项目配置（name=sales-copilot，输出 public）
+├── wrangler.toml           Cloudflare Pages 项目配置（name=sales-copilot-premium，输出 public）
 ├── assets/
 │   ├── css/styles.css      全部样式（约 700 行，CSS 变量驱动）
 │   └── icons/              192 / 512 / apple-touch 三张图标
