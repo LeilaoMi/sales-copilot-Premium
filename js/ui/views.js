@@ -564,6 +564,7 @@ window.Views = (function () {
         ${c.phone ? `<a class="btn btn-sm" href="tel:${E(c.phone)}">打电话</a>` : ''}
         ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${c.id}">复制微信号</button>` : ''}
         <button class="btn btn-sm" data-action="log-followup" data-id="${c.id}">记跟进</button>
+        <button class="btn btn-sm" data-action="digest" data-id="${c.id}">解析聊天记录</button>
         <button class="btn btn-sm" data-action="new-deal" data-id="${c.id}">建商机</button>
       </div>`;
 

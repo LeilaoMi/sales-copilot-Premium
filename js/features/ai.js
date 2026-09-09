@@ -545,6 +545,73 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     return { text, note };
   }
 
+  /* ---------- 会话深度解析（AI 挡位的 digest）----------
+   * digest.js 用规则离线提取，快、可解释，但读不懂语义：
+   * 「那我们就先这样，回头你把参数表发我」这种没踩到关键词的软承诺会漏。
+   * 这个函数是它的 AI 挡位：配了 Key 就能多拿出语义级承诺、
+   * 顾虑归类和建议回复。返回结构与 Digest.analyze 对齐
+   * （mine/theirs/asks/objections/nextSteps/summary），
+   * 勾选、入库、顺延下次跟进全部复用现有流程，不另起炉灶。 */
+  async function parseSession(text, opts) {
+    const o = opts || {};
+    const who = Array.isArray(o.me) ? o.me.filter(Boolean) : [];
+    const custLine = o.customer
+      ? '\n客户方人物：' + [o.customer.name, o.customer.contact, o.customer.title].filter(Boolean).join(' / ')
+      : '';
+    const whoLine = who.length ? '\n销售方在对话里可能显示为：' + who.join(' / ') : '';
+    const prompt = '你是销售会话情报分析引擎。分析以下销售与客户的对话记录，提取结构化情报。'
+      + custLine + whoLine
+      + '\n\n对话记录：\n"""\n' + String(text || '').slice(0, 8000) + '\n"""\n'
+      + `
+严格输出以下 JSON（不要 markdown 代码块包装，不要任何解释文字）：
+{
+  "summary": "3句话以内的沟通摘要，突出核心议题和客户态度",
+  "mine": ["销售(我)做出的具体承诺，如'周三前发参数表'；没有则空数组"],
+  "theirs": ["客户做出的具体承诺，如'下周三给答复'；没有则空数组"],
+  "objections": [{"kind":"简短类别如价格/时间/信任/需求","text":"客户原话或近原话"}],
+  "nextSteps": [{"text":"下一步动作","at":"YYYY-MM-DD 或空字符串"}],
+  "asks": ["在等客户反馈的事项；没有则空数组"],
+  "replySuggestion": "给销售的下一条回复建议，100字以内，口语化可直接发"
+}
+
+规则：
+- 只提取对话中真实存在的信息，禁止脑补
+- 时间不确定就给空字符串，不要猜
+- 客户的犹豫、比较竞品、嫌贵都算 objections
+- mine/theirs 按「接下来谁去做」划分，不是按谁说的`;
+    const out = await chat([{ role: 'user', content: prompt }],
+      { temperature: 0.2, system: '你是销售会话情报分析引擎，只输出 JSON，不输出任何其他文字。' });
+
+    /* 模型偶尔无视指令包一层 ```json 或加句开场白，这里统一剥掉再解析 */
+    let s = String(out || '').trim();
+    const m = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (m) s = m[1].trim();
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error('AI 没有返回 JSON，可重试或改用规则解析');
+    let p;
+    try { p = JSON.parse(s.slice(start, end + 1)); }
+    catch (e) { throw new Error('AI 返回的 JSON 解析失败，可重试或改用规则解析'); }
+    const arr = v => Array.isArray(v) ? v : [];
+    const asItem = x => (typeof x === 'string'
+      ? { text: x, at: '' }
+      : { text: String((x && x.text) || ''), at: String((x && x.at) || '') });
+    return {
+      source: 'ai',
+      summary: String(p.summary || ''),
+      mine: arr(p.mine).map(asItem),
+      theirs: arr(p.theirs).map(asItem),
+      asks: arr(p.asks).map(asItem),
+      objections: arr(p.objections).map(x => (typeof x === 'string'
+        ? { kind: 'AI', text: x }
+        : { kind: String((x && x.kind) || 'AI'), text: String((x && x.text) || '') })),
+      nextSteps: arr(p.nextSteps).map(asItem),
+      replySuggestion: String(p.replySuggestion || ''),
+      lineCount: String(text || '').split(/\r?\n/).filter(Boolean).length,
+      money: [], risks: [], dangling: 0
+    };
+  }
+
   /* ---------- 历史配置 ----------
    * 只存 key 的前几位，不存明文。
    * 切换历史时如果没重新填 key，就沿用在用的那个——
@@ -571,6 +638,6 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     PROVIDERS, GROUPS, cfg, saveCfg, endpoint, modelName,
     buildPrompt, ask, chat, testConnection, listModels, probeBase,
     pushHistory, customerContext, weeklyContext, lostContext,
-    tavilyCfg, saveTavilyCfg, tavilyReady, intelSearch
+    tavilyCfg, saveTavilyCfg, tavilyReady, intelSearch, parseSession
   };
 })();

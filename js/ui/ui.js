@@ -362,6 +362,12 @@
         <div class="dg-for">${c ? '归属客户：<b>' + E(c.name) + '</b>' + (c.contact ? ' · ' + E(c.contact) : '') : '归属客户：' + sel}</div>
         <textarea id="dg-input" placeholder="把微信 / QQ 的聊天记录整段粘进来。&#10;我会揪出：谁答应了什么、客户在顾虑什么、下一步什么时候做。"></textarea>
         <div class="dg-tip">支持「王总：内容」和微信导出的「王总 10:23 / 内容换行」两种格式</div>
+        ${(window.AI && AI.cfg && AI.cfg().key)
+          ? `<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:6px;cursor:pointer">
+              <input type="checkbox" id="dg-use-ai">
+              AI 深度解析（调用你配置的大模型，能读懂语义级承诺与顾虑，额外给出摘要和建议回复）
+            </label>`
+          : ''}
         <div id="dg-out"></div>
       </div>
       <div class="modal-foot">
@@ -370,7 +376,7 @@
       </div>`);
   }
 
-  function dgAnalyze() {
+  async function dgAnalyze() {
     const input = $('#dg-input');
     const text = input ? input.value.trim() : '';
     if (!text) { toast('先粘贴一段聊天记录', 'err'); return; }
@@ -379,25 +385,49 @@
     const selEl = $('#dg-cust');
     const custId = selEl ? selEl.value : dgCustomerId;
     const c = custId ? S.get('customers', custId) : null;
+    const useAI = !!(window.AI && AI.cfg && AI.cfg().key)
+      && !!($('#dg-use-ai') && $('#dg-use-ai').checked);
 
-    const r = window.Digest.analyze(text, {
-      me: [S.state.settings.owner, '我'].filter(Boolean),
-      them: c ? [c.name, c.contact].filter(Boolean) : []
-    });
-    dgResult = r;
-    dgCustomerId = custId;
+    const btn = $('#modal .modal-foot .btn-primary');
+    if (btn) { btn.disabled = true; btn.textContent = useAI ? 'AI 解析中…' : '整理中…'; }
 
-    const out = $('#dg-out');
-    if (out) out.innerHTML = dgRender(r);
+    let r = null;
+    try {
+      if (useAI) {
+        /* AI 挡位：语义级提取。失败不拦总——toast 原因后降级规则版继续。 */
+        try {
+          r = await AI.parseSession(text, {
+            customer: c,
+            me: [S.state.settings.owner, '我'].filter(Boolean)
+          });
+          toast('AI 深度解析完成', 'ok');
+        } catch (e) {
+          toast('AI 解析失败，已改用规则解析：' + e.message, 'err');
+        }
+      }
+      if (!r) {
+        r = window.Digest.analyze(text, {
+          me: [S.state.settings.owner, '我'].filter(Boolean),
+          them: c ? [c.name, c.contact].filter(Boolean) : []
+        });
+      }
+      dgResult = r;
+      dgCustomerId = custId;
 
-    /* 底部按钮换成「存入跟进」—— 分析完才允许落库 */
-    const foot = $('#modal .modal-foot');
-    if (foot) {
-      foot.innerHTML = `
-        <button class="btn" data-action="dg-back">重新粘贴</button>
-        <div class="spacer"></div>
-        <button class="btn" data-action="close-modal">取消</button>
-        <button class="btn btn-primary" data-action="dg-save">存入跟进记录</button>`;
+      const out = $('#dg-out');
+      if (out) out.innerHTML = dgRender(r);
+
+      /* 底部按钮换成「存入跟进」—— 分析完才允许落库 */
+      const foot = $('#modal .modal-foot');
+      if (foot) {
+        foot.innerHTML = `
+          <button class="btn" data-action="dg-back">重新粘贴</button>
+          <div class="spacer"></div>
+          <button class="btn" data-action="close-modal">取消</button>
+          <button class="btn btn-primary" data-action="dg-save">存入跟进记录</button>`;
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '整理'; }
     }
   }
 
@@ -422,8 +452,17 @@
     const dangling = r.dangling > 0
       ? `<div class="dg-hint warn">有 ${r.dangling} 条承诺没写时间 —— 没日期的承诺基本等于没承诺，建议补上。</div>` : '';
 
+    /* AI 挡位独有的建议回复：给销售直接发的那种，复制即用，不入库 */
+    const reply = r.replySuggestion ? `
+      <div class="dg-sec">
+        <div class="dg-h">建议回复<span class="dg-sub">可直接复制发给客户</span></div>
+        <div class="dg-sum" style="margin-bottom:8px">${E(r.replySuggestion)}</div>
+        <button class="btn btn-sm" data-action="dg-copy-reply">复制建议回复</button>
+      </div>` : '';
+
     return `
       <div class="dg-sum">${E(r.summary || '')}</div>
+      ${reply}
       ${risks}
       ${sec('我要做的', '忘了会丢单', r.mine, 'mine')}
       ${sec('客户要做的', '到时候记得催', r.theirs, 'theirs')}
@@ -906,6 +945,11 @@
     'dg-analyze': () => dgAnalyze(),
     'dg-save': () => dgSave(),
     'dg-back': () => { const c = dgCustomerId; digestBox(c); const t = $('#dg-input'); if (t) t.focus(); },
+    'dg-copy-reply': () => {
+      const v = dgResult && dgResult.replySuggestion;
+      if (!v) { toast('没有建议回复', 'err'); return; }
+      copyText(v).then(ok => toast(ok ? '已复制，去微信粘贴即可' : '复制失败', ok ? 'ok' : 'err'));
+    },
 
     'new-script': el => scriptForm(null, el && el.dataset.prefill),
     'edit-script': el => scriptForm(S.get('scripts', el.dataset.id)),
