@@ -7,11 +7,12 @@
 
 ## 0. 先花一分钟弄清一件事：部署到哪儿，决定同步怎么配
 
-这个项目是**纯静态**的：一堆 HTML / CSS / JS 文件，没有后端。
+这个项目是**纯静态**的：一堆 HTML / CSS / JS 文件，没有常驻后端。
 
 你可能注意到仓库里有个 `server/server.js`，它能同时提供网页和 `/api/sync` 同步接口。
 但 **Cloudflare Pages 和 Vercel 都跑不了它** —— 这两个平台只负责把文件发给浏览器，
-不会给你跑 Node 进程。
+不会给你跑常驻 Node 进程。（EdgeOne Pages 是个例外：它的**云函数**可以接管 `/api/sync`，
+见 §4b。）
 
 所以：
 
@@ -19,6 +20,7 @@
 |---|---|---|---|
 | Cloudflare Pages | ✅ | ❌ 接口不存在 | 必须走 **Supabase** |
 | Vercel | ✅ | ❌ 接口不存在 | 必须走 **Supabase** |
+| 腾讯云 EdgeOne Pages | ✅ | ✅ 云函数提供 | 用平台自带接口，不配 Supabase 也行 |
 | 自己跑 `node server/server.js` | ✅ | ✅ | 两条都行 |
 
 **最容易犯的错**：部署到 Pages / Vercel 之后，同步方式还留在
@@ -30,15 +32,15 @@
 
 ---
 
-## 1. 三条路线怎么选
+## 1. 四条路线怎么选
 
-| | Cloudflare Pages | Vercel | 继续用 `node server/server.js` |
-|---|---|---|---|
-| 要注册 GitHub 吗 | 不用，可以直接传文件夹 | 建议有（也可以命令行传） | 不用 |
-| 免费吗 | 免费，带宽不限量 | 免费，有额度（个人够用） | 免费，但电脑要一直开着 |
-| 手机能访问吗 | 能，有公网地址 | 能，有公网地址 | 只能在同一个 WiFi 里 |
-| 同步怎么走 | Supabase | Supabase | 自建 `/api/sync` 或 Supabase |
-| 适合谁 | **大多数人** | 已经有 GitHub / 习惯 Vercel 的人 | 只在家里或办公室局域网用 |
+| | Cloudflare Pages | Vercel | 腾讯云 EdgeOne Pages | 继续用 `node server/server.js` |
+|---|---|---|---|---|
+| 要注册 GitHub 吗 | 不用，可以直接传文件夹 | 建议有（也可以命令行传） | 要，走 Git 推送部署 | 不用 |
+| 免费吗 | 免费，带宽不限量 | 免费，有额度（个人够用） | 有免费额度，需腾讯云实名账号 | 免费，但电脑要一直开着 |
+| 手机能访问吗 | 能，有公网地址 | 能，有公网地址 | 能，国内节点、访问最快 | 只能在同一个 WiFi 里 |
+| 同步怎么走 | Supabase | Supabase | **平台云函数自带 `/api/sync`** | 自建 `/api/sync` 或 Supabase |
+| 适合谁 | **大多数人** | 已经有 GitHub / 习惯 Vercel 的人 | 在意国内访问速度、又不想依赖 Supabase 的人 | 只在家里或办公室局域网用 |
 
 ### 我的推荐：Cloudflare Pages
 
@@ -46,10 +48,11 @@
 
 1. **不用碰 Git。** 注册账号 → 拖个文件夹 → 完事。
    对"不想折腾"这件事来说，少一个 GitHub 环节是实打实的省事。
-2. **缓存规则写在哪儿最清楚。** 就一个 `public/_headers` 文本文件，
-   哪天你想调缓存，打开改数字就行。Vercel 的规则在 JSON 里，
+2. **缓存规则写在哪儿最清楚。** 就一个 `deploy/_headers` 文本文件（构建时由
+   `tools/build.js --pages` 复制进 `public/`，所以**只改 `deploy/` 那份**，
+   改 `public/` 里那份下次构建就没了），哪天你想调缓存，打开改数字就行。Vercel 的规则在 JSON 里，
    而 JSON 不能写注释 —— 三个月后你完全想不起来当初为什么这么写。
-   （所以 Vercel 那份的"为什么"我写在下面第 6 节了。）
+   （所以 Vercel 那份的"为什么"我写在下面第 7 节了。）
 3. **免费版不限带宽。** 这个工具每天要同步很多次，
    虽然每次就几十 KB，但不限量总归省心。
 
@@ -96,8 +99,17 @@ Supabase 是同步数据的"存放地"。免费版对个人完全够用。
 左侧 **SQL Editor** → **New query**，把项目根目录的 **`db/supabase.sql`**
 整个文件的内容粘贴进去，点 **Run**。
 
-看到 Success 就成了。它会建 5 张表和对应的权限策略
-（含快照模式要用的 `sales_sync` 整包表；可重复执行，幂等）。
+看到 Success 就成了。它会建 **6 张表**和对应的权限策略（每张表都是
+`drop policy if exists` 再重建，可重复执行，幂等）：
+
+| 表 | 装什么 |
+|---|---|
+| `profiles` | 用户与角色（owner / admin / member）、所属团队、显示名 |
+| `teams` | 团队本身与 8 位邀请码 |
+| `records` | 你的客户 / 商机 / 跟进 / 话术，一条记录一行，按 `user_id` 隔离 |
+| `team_scripts` | 团队共享话术 |
+| `user_settings` | 你的个人设置（含 AI Key），只有你自己读得到 |
+| `sales_sync` | 整包快照模式（同步方式选「Supabase 空间」时）用的那一张表 |
 
 ### 2.4 建议关掉邮箱验证（重要）
 
@@ -215,6 +227,81 @@ npx wrangler pages deploy public
 
 ---
 
+## 4b. 路线 C：腾讯云 EdgeOne Pages（同步接口自带）
+
+**什么时候选它**：在意国内访问速度，又不想把数据放到 Supabase 上。
+它的**云函数**能给站点直接提供 `/api/sync`，等于把上面那个「静态托管跑不了 Node」的死结绕开了。
+
+细节全在 [`deploy/edgeone/README.md`](../deploy/edgeone/README.md)，这里只给主干和最容易错的点：
+
+1. 把 `deploy/edgeone/` 整个目录复制成你的站点仓库（它是个独立的小项目）
+2. `node prepare.js` —— **每次升级都要跑**，理由见下
+3. `npm install`（全仓库唯一有 npm 依赖的地方：`@edgeone/pages-blob`，需 Node ≥ 18）
+4. 推到 Git → EdgeOne 控制台建 Pages 项目：框架选「其他 / 无」，安装命令 `npm install`，构建命令留空
+5. 函数环境变量：`BLOB_STORE`（存储桶名，默认 `sales-copilot`）、`SYNC_TOKEN`（留空 = 多人模式，令牌即空间）、`MAX_DEVICES`（默认 20，超了返回 413）。改完要重新部署一次才生效
+6. 验：浏览器开 `https://你的域名/api/health`，看到 `"ok":true` 且 `blobReady` 为真
+7. 回应用「设置 → 云同步」，同步方式选 **自建 / 兼容服务器**，地址填 `https://你的域名/api/sync`
+
+> **为什么必须有 `prepare.js`**：合并算法、令牌校验、空间映射这些「协议」在仓库里只写了一份，
+> 就是 `js/core/sync-core.js`。EdgeOne 云函数是 ESM，用不了那份 CJS，所以脚本按
+> `SYNC-CORE-BEGIN/END` 标记把它抽出来生成 ESM 副本。你改了主项目的 sync-core 却忘了重跑
+> `prepare.js`，两边算法就开始漂移 —— 表现是同一份数据在设备和云端各算出不同结果，极难查。
+> CI 里用 `node prepare.js --check` 当闸门，不一致直接红。
+
+---
+
+## 4c. 路线 D：自托管（`server/server.js` / Docker / systemd）
+
+零依赖单文件，同时给静态站点和同步接口：
+
+| 接口 | 作用 |
+|---|---|
+| `GET /api/health` | 免鉴权。看 `mode`（专属 / 多人）、`storage`（**必须是 `file`**，`memory` 说明写不进磁盘、重启即丢）、`spaces` |
+| `GET /api/sync` | 拉本空间快照（需令牌）。云端还没数据时返回 404，属正常 |
+| `PUT /api/sync` | 上传快照，服务端做 LWW 合并后返回合并结果。单次请求体上限 **8 MB** |
+| `GET /api/backups` | 列出本空间的历史快照（文件名 / 时间 / 大小） |
+
+**环境变量**（全部可选）：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `PORT` | 8080 | 监听端口，绑 `0.0.0.0` |
+| `SYNC_TOKEN` | 空 | 设了 = 专属模式（只认这一个令牌）；不设 = 多人模式（任意 ≥8 位令牌各自开一个空间） |
+| `BACKUP_KEEP` | 10 | 每个空间保留的近期快照份数 |
+| `BACKUP_MIN_GAP` | 60000 | 两次近期快照的最小间隔（毫秒） |
+| `MAX_SPACES` | 200 | 空间数上限，超出 503。没有频率限制，这条是公开部署唯一的护栏 |
+
+数据落在 `data/`：每个空间一个 `store-<令牌哈希>.json`（tmp + rename 原子写），
+多人模式下首次启动会把建议令牌写到 `data/token.txt`。备份在 `data/backups/`，
+近期快照留 `BACKUP_KEEP` 份、每日快照留 7 天。**恢复**：停服 → 把选中的快照复制成
+`data/store-<同一个哈希>.json` → 再起服务。
+
+```bash
+# 裸跑
+SYNC_TOKEN=一串长随机字符 PORT=8080 node server/server.js
+
+# Docker（在仓库根执行；模板在 deploy/ 下，必须用 -f 指过来）
+docker build -t sales-copilot -f deploy/Dockerfile .
+docker run -d --name sales-copilot -p 8080:8080 \
+  -e SYNC_TOKEN=你自己的长令牌 -v $(pwd)/sync-data:/app/data \
+  --restart unless-stopped sales-copilot
+
+# systemd：照 deploy/sales-copilot.service 顶部的安装步骤走
+```
+
+> **三件必须注意的事**：
+> 1. 镜像/发布包只带源码。仓库根的 `.dockerignore` 已经排除 `data/`、`public/`、`.env*`、`.git/`
+>    —— 别为了"图省事"把它删了：`data/` 里是真实客户姓名电话，一旦进了镜像 layer，
+>    后面删掉文件也还在历史层里，跟着 push 上去就是永久泄露。
+> 2. 这个服务只讲 HTTP，**同步令牌等同数据访问凭证**。挂到公网必须前置 HTTPS 反代，
+>    并且建议固定 `SYNC_TOKEN`（多人模式下任何人猜到一个 ≥8 位令牌就能看到那个空间）。
+>    静态服务内置了一道闸：`data/`、`server/`、`node_modules/` 和任何以点开头的路径一律 403，
+>    否则等于把令牌和客户名单挂在公网让人下载。**部署完照 §5.5 那三条 curl 验一遍**（要 403）。
+> 3. 容器里 `data/` 一定要挂卷（`-v ...:/app/data`），systemd 下 `data/` 的属主要给服务用户，
+>    否则写不进盘会静默退化成内存存储 —— 用 `curl localhost:8080/api/health` 看 `storage` 确认。
+
+---
+
 ## 5. 部署后必做的验证清单
 
 **本地能跑 ≠ 线上能跑。** 下面这几条请真的做一遍，每条都不超过两分钟。
@@ -247,7 +334,7 @@ bug 原样复现，看着像没修，其实是修复压根没送到。
    验证办法：浏览器直接访问 `https://你的域名/_headers`。
    - 返回 404 → ✅ 对了（这个文件不会被当作静态资源提供，说明被正确解析了）
    - 返回文件内容 → ❌ 它被当成普通文件上传了，位置错了
-2. 部署之前有没有执行那句 `cp ... public/`？
+2. 部署之前有没有执行 `node tools/build.js --pages`？（`_headers` 和补齐的 `sw.js` 清单都由它生成，手动 cp 已经作废）
 3. 缓存桶还是 v2 的话：在 **Application → Service Workers** 点 **Unregister**，
    然后**关掉整个标签页重开**（光刷新不行）。
 
@@ -307,13 +394,27 @@ bug 原样复现，看着像没修，其实是修复压根没送到。
 
 ### 5.5 确认客户数据没泄露 ⚠️ 安全
 
-浏览器访问这两个地址，都应该是 404：
+**静态托管（Pages / Vercel）**：浏览器访问这两个地址，都应该是 404：
 
 - `https://你的域名/data/`
 - `https://你的域名/data/store-1c1ce8583d9a.json`（换成你 `data/` 里任意真实文件名）
 
 **任何一个能打开、能看到客户姓名电话 → 立刻去平台后台把这个部署删掉**，
 然后再回来按第 3 节重做（一定是输出目录填成了项目根）。
+
+**自托管（`server/server.js` / Docker / systemd）**：这条更要紧，因为服务的站点根**就是仓库根**，
+`data/` 就在里面。逐条访问，全部必须是 **403**：
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://IP:8080/data/token.txt
+curl -s -o /dev/null -w "%{http_code}\n" http://IP:8080/data/store-<你的哈希>.json
+curl -s -o /dev/null -w "%{http_code}\n" http://IP:8080/data/backups/
+```
+
+- 403 → ✅ 拦截生效（`server/server.js` 的 `isPrivatePath`）
+- **200 → ⚠️ 你跑的是修复前的版本**：`token.txt` 是同步令牌，`store-*.json` 是整份客户名单，
+  谁都能下。先升级到含这道闸的版本，然后**换掉令牌**重新同步一遍
+  —— 空间数据按令牌哈希寻址，旧令牌泄露过就一直有效，升级本身不会让它失效。
 
 ### 5.6 添加到手机主屏幕
 
@@ -351,7 +452,7 @@ bug 原样复现，看着像没修，其实是修复压根没送到。
 |---|---|---|
 | 「测试连接」报 **"地址对得上，但表还没建"** | Project URL 是对的，但 `db/supabase.sql` 没跑 | 去 SQL Editor 执行 `db/supabase.sql` |
 | 整个页面 404 | 部署时输出目录填错了 | Cloudflare 的输出目录必须是 `public`；Vercel 留空 |
-| `sw.js` 或某个 `.js` 404 | 忘了执行那句 `cp ... public/` | 重新执行再部署 |
+| `sw.js` 或某个 `.js` 404 | 忘了执行 `node tools/build.js --pages`，或部署的不是 `public/` | 重新构建再部署 |
 | 页面能开但功能缺失 | 同上，缺了几个模块文件 | 同上。这个项目的脚本有加载顺序依赖，缺一个就会连带坏掉好几个页面 |
 
 ### 其他
@@ -360,7 +461,7 @@ bug 原样复现，看着像没修，其实是修复压根没送到。
 |---|---|---|
 | **同步胶囊一直灰着不动** | 同步方式还停在「自建 / 兼容服务器」，而 Pages / Vercel 上没有 `/api/sync` | 改成 **Supabase / 云开发 REST**（回到第 0 节） |
 | 页面白屏，控制台一堆红字 | 缓存了旧代码 | 按 5.1 处理：Unregister SW → 关标签页重开 |
-| 刷新看不到刚改的代码 | 同上 | 同上。另外确认部署前跑过 `cp ... public/` |
+| 刷新看不到刚改的代码 | 同上 | 同上。另外确认部署前跑过 `node tools/build.js --pages` |
 | 注册完提示去邮箱确认 | 邮箱验证没关 | 按 2.4 关掉；或者去邮箱点链接 |
 | 换了个浏览器，Supabase 配置要重填 | 正常的。配置存在浏览器 localStorage 里 | 重填一次。或者用「数据码」把数据整个搬过去（设置 → 数据管理 → 复制数据码） |
 | 清了浏览器缓存，数据没了 | localStorage 被清了 | 如果配了 Supabase，在新浏览器里填一遍配置，同步一次就回来了。**这也是为什么强烈建议开同步** |
@@ -401,16 +502,19 @@ bug 原样复现，看着像没修，其实是修复压根没送到。
 
 ---
 
-## 8. 附：文件清单
-
-这次为了上线新增的文件，就这几个：
+## 8. 附：部署相关文件清单
 
 | 文件 | 作用 |
 |---|---|
-| `public/_headers` | Cloudflare Pages 的缓存规则。**改缓存来这里改** |
-| `wrangler.toml` | Cloudflare Pages 的项目配置（命令行部署时用） |
-| `vercel.json` | Vercel 的缓存与项目配置 |
-| `DEPLOY.md` | 你正在看的这份 |
-
-**没有动过任何业务代码** —— `index.html`、`store.js`、`sync.js`、
-`sw.js`、`server/server.js` 全都原样没碰。
+| `deploy/_headers` | Cloudflare Pages 缓存规则的**源文件**，构建时复制成 `public/_headers`。**改缓存改这份** |
+| `wrangler.toml` | Cloudflare Pages 项目配置（`name=sales-copilot`、`pages_build_output_dir=public`），命令行部署时用 |
+| `vercel.json` | Vercel 的项目与缓存配置（理由见第 7 节） |
+| `tools/build.js` | 两个产物的唯一入口：单文件 HTML、`public/` 部署目录（顺带复制 `_headers`、重写 `sw.js` 清单、做 `data/` 泄漏检查） |
+| `sw.js` | Service Worker，缓存桶 `sales-copilot-v3`，`html/js/css/根路径` 走网络优先 |
+| `deploy/Dockerfile` | 自托管容器模板（**在仓库根**用 `-f deploy/Dockerfile` 构建） |
+| `.dockerignore` | 挡 `data/`、`public/`、`.env*`、`.git/` 不进镜像层 |
+| `deploy/sales-copilot.service` | systemd 守护模板（含 `ProtectSystem=strict` 加固与 data 属主步骤） |
+| `deploy/edgeone/` | 腾讯云 EdgeOne Pages 适配器（云函数提供 `/api/sync` + `/api/health`），自带 README |
+| `db/supabase.sql` | Supabase 6 张表 + RLS 策略 + security definer 函数，幂等可重跑 |
+| `.github/workflows/supabase-keepalive.yml` | 每 3 天 ping 一次免费 Supabase 项目防休眠；检测到暂停会标红提醒 |
+| `docs/DEPLOY.md` | 你正在看的这份 |
