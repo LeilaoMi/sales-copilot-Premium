@@ -176,6 +176,31 @@ function send(res, code, obj, headers) {
 function tokenOf(req) { return CORE.tokenOf(req); }
 function authOk(req) { return CORE.authOk(req, FIXED_TOKEN); }
 
+/* 静态服务绝不许碰的路径。
+ *
+ * 为什么必须有这道闸：站点根就是仓库根（ROOT = server/ 的上一级），
+ * 而 `data/` 恰恰也躺在仓库根里 ——
+ *   data/token.txt            多人模式下自动生成的建议令牌
+ *   data/store-<哈希>.json     某个空间的全量快照：真实客户姓名 / 电话 / 微信
+ *   data/backups/*.json        上面那份的历史版本，内容一样敏感
+ * 不加拦截的话，任何能访问到这个端口的人，先 GET /data/token.txt 拿到令牌，
+ * 再 GET /data/store-xxxx.json 就能把客户名单整份下载走。
+ * 同步令牌本身就等同于数据访问凭证 —— 它不像密码可以「改一下」了事，
+ * 空间数据是按它的哈希寻址的，泄露了只能换令牌重新同步一遍。
+ *
+ * 服务端自己的源码（server/）和依赖（node_modules/）也没必要公网可读。
+ * 以点开头的段（.env / .git / .vercel …）历史上就是凭证和机器路径的藏身处。
+ *
+ * 前端真正要加载的只有 index.html / js/ / assets/ / kb/ / manifest.json /
+ * sw.js / _headers，没有一个落在这几条里，所以这道闸不影响正常使用。 */
+function isPrivatePath(pathname) {
+  const segs = pathname.split('/').filter(Boolean);
+  if (!segs.length) return false;
+  const top = segs[0].toLowerCase();
+  if (top === 'data' || top === 'server' || top === 'node_modules') return true;
+  return segs.some(s => s.charCodeAt(0) === 46);   // 46 = '.'，覆盖 .env / .git / .vercel 等
+}
+
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const pathname = decodeURIComponent(u.pathname);
@@ -264,6 +289,7 @@ const server = http.createServer((req, res) => {
   // 静态文件
   let file = path.join(ROOT, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(ROOT)) return send(res, 403, { error: '禁止访问' });
+  if (isPrivatePath(pathname)) return send(res, 403, { error: '禁止访问' });
   fs.stat(file, (err, st) => {
     if (err || st.isDirectory()) {
       file = path.join(ROOT, 'index.html');
