@@ -52,17 +52,23 @@ create table if not exists profiles (
 -- 首个注册的人自动成为 owner，并顺手建一个同名团队——
 -- 一个人用的时候也得有个团队，否则后面所有「团队」逻辑都要写空判断。
 create or replace function handle_new_user()
-returns trigger as $$
+returns trigger
+language plpgsql
+security definer
+set search_path = public   -- 必须固定：触发器由 GoTrue 内部角色（supabase_auth_admin）触发，
+                           -- 其 search_path 不含 public，不 pin 会导致 insert 找不到表、注册报
+                           -- "Database error saving new user"（表名同时全部显式限定 public.）
+as $$
 declare
   new_team_id uuid;
   member_count int;
 begin
-  select count(*) into member_count from profiles;
+  select count(*) into member_count from public.profiles;
 
   if member_count = 0 then
     /* 顺手把邀请码生成好：不然第一个人想加同事进来看不到码，
      * 会以为这个功能坏了 */
-    insert into teams (name, owner_id, invite_code)
+    insert into public.teams (name, owner_id, invite_code)
       values (
         coalesce(new.raw_user_meta_data->>'name', '我的团队'),
         new.id,
@@ -70,18 +76,18 @@ begin
       )
       returning id into new_team_id;
 
-    insert into profiles (id, team_id, role, display_name)
+    insert into public.profiles (id, team_id, role, display_name)
       values (new.id, new_team_id, 'owner',
               coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)));
   else
-    insert into profiles (id, team_id, role, display_name)
+    insert into public.profiles (id, team_id, role, display_name)
       values (new.id, null, 'member',
               coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)));
   end if;
 
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -164,12 +170,12 @@ alter table user_settings enable row level security;
 create or replace function my_team_id()
 returns uuid as $$
   select team_id from profiles where id = auth.uid();
-$$ language sql security definer stable;
+$$ language sql security definer stable set search_path = public;
 
 create or replace function my_role()
 returns text as $$
   select role from profiles where id = auth.uid();
-$$ language sql security definer stable;
+$$ language sql security definer stable set search_path = public;
 
 -- ---------- profiles ----------
 drop policy if exists "profile_self" on profiles;
@@ -275,12 +281,12 @@ begin
   update teams set invite_code = c where id = my_team_id();
   return c;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 create or replace function my_invite_code()
 returns text as $$
   select invite_code from teams where id = my_team_id();
-$$ language sql security definer stable;
+$$ language sql security definer stable set search_path = public;
 
 create or replace function join_team(code text)
 returns uuid as $$
@@ -299,7 +305,7 @@ begin
   end if;
   return tid;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 /* 退出团队：成员自己可以退，管理员也能把人移出去（后者走 profiles 的 admin 策略） */
 create or replace function leave_team()
@@ -307,7 +313,7 @@ returns void as $$
 begin
   update profiles set team_id = null where id = auth.uid();
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 grant execute on function reset_invite_code() to authenticated;
 grant execute on function my_invite_code() to authenticated;
