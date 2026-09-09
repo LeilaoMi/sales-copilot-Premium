@@ -18,8 +18,8 @@ jobs:
     steps:
       - name: Ping Supabase（保活 + 休眠检测）
         env:
-          SB_URL: "https://udwnjtdqkxbkkyhoqlef.supabase.co"
-          SB_KEY: "sb_publishable_sV-K_P_fpM8iNElTDjckPw_CePK8kCv"
+          SB_URL: "https://jdeuqdxkktlaerpiwqcj.supabase.co"
+          SB_KEY: "sb_publishable_jdB5TtbLc-wTTu9xrtsCvA_146cmvay"
         run: |
           # 判定依据：/auth/v1/health（GoTrue 健康检查，不依赖建表，publishable key 可访问）
           # 注意：/rest/v1/ 根路径要求 secret key，publishable 必 401，不能当休眠信号
