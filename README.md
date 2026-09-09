@@ -256,9 +256,16 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 | 自有服务器 / 树莓派 | `node server/server.js`（模板 `deploy/Dockerfile`、`deploy/sales-copilot.service`） | 两条都行 |
 | 腾讯云 EdgeOne Pages | 见 `deploy/edgeone/README.md`，用 Pages Blob 提供 `/api/sync`，免持久文件系统 | 自建接口 |
 
+**本项目的线上地址口径**：对外一律用自定义域 **`https://sales.leilaomi.cc.cd`**。
+CF Pages 的默认子域是 `sales-copilot-hy4.pages.dev`——它是项目**创建那一刻**按当时名字定下来的，
+Cloudflare 明确 `*.pages.dev` 子域不可更改（实测 `PATCH` 传 `subdomain` 返回成功但静默忽略，
+手工把 `xxx.pages.dev` 当附加域名挂上去则报 `invalid TLD`），所以它只作为部署预览地址存在
+（每次部署另有 `https://<short-id>.sales-copilot-hy4.pages.dev` 的固定快照地址）。
+书签、分享、写文档都走自定义域，别贴 pages.dev。
+
 构建脚本 `node tools/build.js --pages` 做四件事，别用手敲 `cp` 替代：清仓重建 `public/`、按 `index.html` 的实际引用复制资源、把 `deploy/_headers` 复制过去（缺了就报错拦停）、**重写 `public/sw.js` 的预缓存清单**（离线漏模块这个坑踩过两次，靠人记注释靠不住）。
 
-`deploy/Dockerfile` 与 `deploy/sales-copilot.service` 里的启动命令目前写的是 `node server.js`，按仓库实际布局应为 `server/server.js`（用这两个模板前先改一行）。
+自托管两个模板都已按仓库实际布局写对启动路径（`node server/server.js`）：Docker 在**仓库根**执行 `docker build -t sales-copilot -f deploy/Dockerfile .`（`deploy/_headers` 那份同理，别去改构建产物里的副本）；systemd 照 `deploy/sales-copilot.service` 顶部步骤装，注意 `ProtectSystem=strict` 下要先建好并交出 `data/` 属主，起服务后用 `/api/health` 的 `storage:file` 确认数据真的落盘。
 
 **Supabase 免费项目保活**：`.github/workflows/supabase-keepalive.yml` 每 3 天 ping 一次 `/auth/v1/health`，防止免费项目 7 天不活跃被暂停；检测到休眠会把任务标红提醒去 Dashboard 手动 Restore。注意 GitHub 会在仓库 60 天无提交后自动停用定时任务。
 
@@ -399,6 +406,7 @@ PORT=8080 node server/server.js
 | 清空数据后示例又长回来 | 已修（`onboarded` 标记跟同步走）。若复现，按 `docs/DEPLOY.md` 5.2 处理 |
 | 月初回款预测显示 0 | 已修。没填预计成交日的单按最低估并提醒补 |
 | 同一浏览器换账号看到上一个人的数据 | 设计如此。localStorage 按网站分不按账号分，退出登录不清业务数据。要验证隔离请用两个浏览器或无痕窗口 |
+| 线上子域还叫 `sales-copilot-hy4.pages.dev` | 正常，且改不了：CF 的 `*.pages.dev` 子域在项目创建时定死。对外请用 `https://sales.leilaomi.cc.cd`（见[第 6 节](#6-部署到线上)） |
 | 通知不响 | 需 HTTPS 且要授予通知权限；被拒时退化为页面角标。只提醒逾期和 48 小时内到期 |
 
 ---

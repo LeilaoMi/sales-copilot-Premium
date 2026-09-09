@@ -159,9 +159,16 @@ node tools/build.js --pages
 1. 注册 [dash.cloudflare.com](https://dash.cloudflare.com)
 2. 左侧 **Workers & Pages** → **Create** → **Pages** → **Upload assets**
 3. 给项目起个名，比如 `sales-copilot`
+   > 想清楚再起：这个名字会**永久决定**你的 `xxx.pages.dev` 子域，事后改不掉（只能删项目重建）。
 4. 把 **`public` 这个文件夹整个拖进去**（不是拖里面的文件，是拖文件夹本身）
 5. 点 **Deploy site**，等一分钟
 6. 拿到一个 `https://xxx.pages.dev` 的地址，打开看看
+
+> **这个子域以后改不掉**：`*.pages.dev` 是项目创建那一刻按当时名字定下来的，
+> Cloudflare 不支持修改（本项目现在的项目名叫 `sales-copilot-premium`，
+> 子域仍是创建时的 `sales-copilot-hy4.pages.dev`）。所以把它当**部署预览地址**就好，
+> 对外分享一律用自定义域 `https://sales.leilaomi.cc.cd`。
+> 想再挂自己的域名：Pages 项目 → **Custom domains** → 添加，Cloudflare 会在同账号的 DNS 里自动补记录。
 
 以后要更新：回到这个项目 → **Create deployment** → 再拖一次文件夹。
 
