@@ -182,7 +182,14 @@ ${extra ? '\n补充要求：' + extra : ''}`;
       prompt += '任务：客户说了下面这句话，帮我接住。\n';
       prompt += `客户原话：${extra || '（未提供）'}\n`;
       if (customerId) prompt += customerContext(customerId);
-      let hits = (typeof Playbook !== 'undefined' && Playbook.search) ? Playbook.search(extra || '', 3) : [];
+      /* Playbook.search 的签名是 (list, query, opts)——历史上这里
+       * 曾把查询串当列表传，导致「话术军火」场景一点生成就抛
+       * forEach is not a function；返回项是 { s, score, why }，
+       * 标题和正文都在 s 上，不是顶层。两处一起修。 */
+      let hits = [];
+      if (typeof Playbook !== 'undefined' && Playbook.search) {
+        hits = Playbook.search(S.list('scripts'), extra || '', { limit: 3 });
+      }
       /* 军火库加载过就一起喂给模型：话术库管「怎么接」，军火库管「业内通常怎么做」 */
       if (typeof window !== 'undefined' && window.Armory && window.Armory.ready()) {
         hits = hits.concat(window.Armory.search(extra || '').slice(0, 2));
@@ -190,7 +197,8 @@ ${extra ? '\n补充要求：' + extra : ''}`;
       if (hits.length) {
         prompt += '\n本地话术库里找到的参考资料（优先参考这些，它们是自己人实战过的）：\n';
         hits.forEach((h, i) => {
-          prompt += `  [${i + 1}] ${h.title || h.scene || ''}\n      ${String(h.content || '').replace(/\n/g, ' ').slice(0, 300)}\n`;
+          const s = h.s || h;
+          prompt += `  [${i + 1}] ${s.title || s.scene || ''}\n      ${String(s.content || '').replace(/\n/g, ' ').slice(0, 300)}\n`;
         });
       }
       prompt += `

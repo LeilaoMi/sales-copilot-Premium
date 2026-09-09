@@ -466,6 +466,7 @@
       ${risks}
       ${sec('我要做的', '忘了会丢单', r.mine, 'mine')}
       ${sec('客户要做的', '到时候记得催', r.theirs, 'theirs')}
+      ${sec('等客户反馈', '这些事在客户手里', r.asks, 'asks')}
       ${sec('客户顾虑', '这是单子真正的卡点', r.objections, 'objections')}
       ${sec('下一步', '', r.nextSteps, 'nextSteps')}
       ${dangling}
@@ -702,7 +703,12 @@
     }
     refreshTop();
     updateBadge();
-    if (view === 'scripts') bindScriptSearch();
+    if (view === 'scripts') {
+      bindScriptSearch();
+      /* 军火库的搜索框监听在 Armory.render() 里绑，box() 只给静态
+       * HTML；视图每次重绘后 DOM 是新的，必须跟着补一次。 */
+      if (window.Armory) window.Armory.render();
+    }
     if (window.Sync) renderSyncStatus();
 
     /* 成员列表要发请求，不能每次 render 都拉一遍。

@@ -894,8 +894,10 @@ window.Views = (function () {
     </div>
 
     ${window.Armory ? `<div id="kb-box">${window.Armory.box()}</div>` : ''}`;
+    /* 注意：这里不能调 Armory.render()——函数 return 时模板还没进
+     * DOM，#kb-box 不存在。render 的调用点在 ui.js 主 render 的
+     * view === 'scripts' 分支（DOM 已就绪）。 */
   }
-
   /* 只重绘结果区 —— 整页重绘会让搜索框失焦，输入一个字就跳一下，没法用 */
   function scriptResults(ctx) {
     const all = S.list('scripts');

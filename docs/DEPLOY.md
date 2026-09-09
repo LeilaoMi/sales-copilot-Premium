@@ -130,7 +130,13 @@ node tools/build.js --pages
 ```
 
 执行完 `public/` 里应该有：所有 `.js`、`styles.css`、`index.html`、
-三个图标、`manifest.json`，加上本来就有的 `_headers`。
+三个图标、`manifest.json`、`_headers`，以及 `kb/knowledge.json`
+（实战军火库的数据文件，话术库页点「加载军火库」时才会下载）。
+
+> 军火库数据想换成自己的：改 `kb/knowledge.json`（或改
+> `tools/kb-extra-*.json` 后跑 `python tools/gen-kb-seed.py` 重新生成），
+> 再执行一次上面的构建命令。不想要军火库：删掉 `kb/` 目录即可，
+> 页面上会明说加载失败，不影响其他功能。
 
 > 这一步**每次改完代码要重新执行一遍**，再部署。
 > 忘了的话，线上还是上一版 —— 而且不会有任何报错。

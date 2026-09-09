@@ -207,7 +207,14 @@ window.Armory = (function () {
       if (input) input.focus();
       return;
     }
-    if (act === 'kb-qcat') { q = el.getAttribute('data-q') || ''; render(); return; }
+    if (act === 'kb-qcat') {
+      q = el.getAttribute('data-q') || ''; render();
+      /* 整卡重绘后输入框是新的，把焦点还回去——用户点分类通常
+       * 是想接着搜，焦点丢了就得再点一次输入框 */
+      const inp = document.querySelector('#kb-box #kb-q');
+      if (inp) { inp.focus(); if (inp.setSelectionRange) try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {} }
+      return;
+    }
     if (act === 'kb-copy') {
       const it = (items || []).find(x => x.id === el.getAttribute('data-id'));
       if (!it) return;

@@ -42,6 +42,7 @@ const FILES = [
   './js/core/sync.js',
   './js/features/coach.js',
   './js/features/playbook.js',
+  './js/features/armory.js',
   './js/features/health.js',
   './js/features/quicklog.js',
   './js/features/report.js',

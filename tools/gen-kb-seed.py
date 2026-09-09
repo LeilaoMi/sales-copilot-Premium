@@ -8,7 +8,9 @@ import json, re, html, os, hashlib
 ROOT = os.path.join(os.path.dirname(__file__), '..')
 OUT = os.path.join(ROOT, 'kb', 'knowledge.json')
 SEED_SQL = os.path.join(ROOT, '..', 'copilot-old', 'supabase', 'knowledge-seed.sql')
-CHAT = r"D:/WeChat Files/wxid_oenwhe9q5qja22/FileStorage/File/2026-09/chat_backup_2026-09-09_12-27-43.json"
+# 聊天归档路径：默认从环境变量 KB_CHAT_JSON 读，没有就跳过该数据源
+# （当年那份归档在本机微信目录，换机后设 KB_CHAT_JSON 指向新位置即可）
+CHAT = os.environ.get('KB_CHAT_JSON', r"D:/WeChat Files/wxid_oenwhe9q5qja22/FileStorage/File/2026-09/chat_backup_2026-09-09_12-27-43.json")
 
 CAT_MAP = {
     'objection': '异议应对', 'script': '标准话术', 'competitor': '竞品对比',
