@@ -1930,7 +1930,10 @@
    * 意图就是「登录拿数据」，不需要也不应该再问一遍。 */
   async function gateFinishAuth() {
     try { localStorage.removeItem(GATE_SKIP_KEY); } catch (e) {}
-    Sync.saveCfg({ mode: 'cloud' });
+    /* touch=false：mode 切换不算配置变更。若它把 updatedAt 刷成 now，
+     * 白纸设备的 settings 会永远"比云端新"，云端配置（含 AI key）既拉不下来
+     * 还会被空配置顶掉——「换台设备登录配置全丢」就是这条路径造成的。 */
+    Sync.saveCfg({ mode: 'cloud' }, false);
     await Promise.resolve(Sync.start()).catch(() => null);
     /* 顺序有讲究：先清本机示例（它们不上云，留着会混进真实数据），
      * 再判要不要给全新账号灌示例——此时云端有没有数据已经落定。 */

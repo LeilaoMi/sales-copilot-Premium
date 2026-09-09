@@ -32,9 +32,14 @@ window.Sync = (function () {
   const getStatus = () => ({ status, message, lastSyncAt, mode: cfg().mode || 'off' });
 
   function cfg() { return S.state.settings.sync || { mode: 'off' }; }
-  function saveCfg(patch) {
+  function saveCfg(patch, touch) {
     S.state.settings.sync = Object.assign({ mode: 'off' }, S.state.settings.sync || {}, patch);
-    S.state.settings.updatedAt = Date.now();
+    /* pullCursor/pushCursor 是同步机器状态，每次同步都会写。若它们也把 updatedAt
+     * 刷成 now，本地 settings 会永远"比云端新"——云端配置既拉不下来，还会被
+     * 本机整包顶掉，AI key 等凭据就是这么丢的（多设备场景实测复现）。
+     * 机械字段与显式 touch===false 的调用都不参与冲突计时。 */
+    const mechanical = Object.keys(patch).every(k => k === 'pullCursor' || k === 'pushCursor');
+    if (touch !== false && !mechanical) S.state.settings.updatedAt = Date.now();
     S.save();
   }
 
@@ -308,7 +313,14 @@ window.Sync = (function () {
     const rAt = Number(rs.updatedAt) || 0;
     const lAt = Number(ls.updatedAt) || 0;
     if (rAt <= lAt) return false;
-    S.state.settings = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+    /* 采纳云端整包，但本机非空的凭据保留：云端包若是在凭据丢失期间
+     * 上传的（key 为空），不能反过来把本机仅存的那份也冲掉。 */
+    const merged = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+    ['ai', 'tavily'].forEach(k => {
+      const l = ls[k], r = merged[k];
+      if (l && l.key && (!r || !r.key)) merged[k] = Object.assign({}, r, { key: l.key });
+    });
+    S.state.settings = merged;
     S.save();
     return true;
   }
@@ -324,10 +336,18 @@ window.Sync = (function () {
       saveCfg({ pullCursor: pulled.rows[pulled.rows.length - 1].updated_at });
     }
 
-    /* 设置单独往返一次，只处理自己的那份 */
+    /* 设置单独往返一次，只处理自己的那份。
+     * 推送前凭据兜底：本机 ai.key/tavily.key 为空而云端有值时先继承再推，
+     * 防止新设备（本地白纸）用空凭据把云端配置顶掉。
+     * 其余字段维持 updatedAt 整包 LWW，不引入逐字段合并。 */
     const rs = await cloudAdapter.pullSettings();
     const setChanged = applyCloudSettings(rs);
     const ls = S.state.settings || {};
+    const rdata = rs && rs.data;
+    ['ai', 'tavily'].forEach(k => {
+      const l = ls[k], r = rdata && rdata[k];
+      if (l && !l.key && r && r.key) ls[k] = Object.assign({}, l, { key: r.key });
+    });
     const remoteSettingsAt = rs && rs.updated_at ? Date.parse(rs.updated_at) : 0;
     if ((Number(ls.updatedAt) || 0) > (remoteSettingsAt || 0)) {
       await cloudAdapter.pushSettings(ls);
