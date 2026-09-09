@@ -291,12 +291,14 @@ window.Auth = (function () {
   async function removeFromTeam(uid) {
     if (!isAdmin()) throw new Error('只有管理员能移人');
     if (uid === userId()) throw new Error('不能把自己移出团队');
-    const r = await api('/rest/v1/profiles?id=eq.' + encodeURIComponent(uid), {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({ team_id: null })
+    /* 走 security definer RPC：实测「UPDATE profiles SET team_id = null」即便
+     * 策略定义正确仍可能被 RLS 42501 拒绝（2026-09-09，数据库内复现）。
+     * 函数内自校验（owner/admin、非本人、只动同队成员）后以表属主身份执行。
+     * 函数报错会原样透传成这里的 e.message。 */
+    await api('/rest/v1/rpc/admin_remove_member', {
+      method: 'POST',
+      body: JSON.stringify({ target: uid })
     });
-    if (!r || !r.length) throw new Error('移出失败：数据库没有更新任何行（请在 SQL Editor 重跑 db/supabase.sql）');
     return true;
   }
 

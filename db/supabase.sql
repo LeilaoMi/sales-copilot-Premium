@@ -203,6 +203,38 @@ create policy "profile_admin_update" on profiles
   )
   with check (my_role() in ('owner', 'admin'));
 
+-- 移出团队成员走 security definer RPC（admin_remove_member）。
+-- 原因：2026-09-09 实测，即便上面这条策略定义完全正确，
+-- 「UPDATE ... SET team_id = null」仍可能被 42501 拒绝（数据库内可复现，
+-- using/with_check/角色上下文全部验证正常，原因未明）。
+-- 函数内自校验（owner/admin、非本人、只动同队成员），以表属主身份
+-- 执行 update，绕开 RLS 判定。前端 removeFromTeam 调 rpc/admin_remove_member。
+create or replace function admin_remove_member(target uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  op_role text;
+  op_team uuid;
+begin
+  select role, team_id into op_role, op_team from profiles where id = auth.uid();
+  if op_role not in ('owner', 'admin') then
+    raise exception '只有 owner/admin 能移出成员';
+  end if;
+  if target = auth.uid() then
+    raise exception '不能把自己移出团队';
+  end if;
+  update profiles set team_id = null where id = target and team_id = op_team;
+  if not found then
+    raise exception '目标成员不存在或不在你的团队';
+  end if;
+end;
+$$;
+revoke all on function admin_remove_member(uuid) from anon;
+grant execute on function admin_remove_member(uuid) to authenticated;
+
 -- ---------- teams ----------
 drop policy if exists "team_member_read" on teams;
 create policy "team_member_read" on teams
