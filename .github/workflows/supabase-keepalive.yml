@@ -1,0 +1,38 @@
+# Supabase 免费项目保活：每 3 天 ping 一次，防止 7 天不活跃被暂停。
+# - 用的是 publishable key（anon 级），本来就会随前端 JS 分发给所有访问者，明文存放无风险。
+# - 检测到休眠时任务标红并提醒去 Dashboard 手动 Restore（GitHub 会发邮件）。
+# - 注意：GitHub 会在仓库 60 天无提交后自动停用定时任务，届时重新启用或推一次代码即可。
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: "17 1 */3 * *" # 每 3 天一次（UTC 01:17 ≈ 北京 09:17）
+  workflow_dispatch: {} # 支持手动触发
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase（保活 + 休眠检测）
+        env:
+          SB_URL: "https://udwnjtdqkxbkkyhoqlef.supabase.co"
+          SB_KEY: "sb_publishable_sV-K_P_fpM8iNElTDjckPw_CePK8kCv"
+        run: |
+          # 判定依据：/auth/v1/health（GoTrue 健康检查，不依赖建表，publishable key 可访问）
+          # 注意：/rest/v1/ 根路径要求 secret key，publishable 必 401，不能当休眠信号
+          auth=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+            -H "apikey: $SB_KEY" "$SB_URL/auth/v1/health")
+          # REST 探测仅供观察：恢复后 200（表已建）或 404（表未建）都算网关活着，5xx 才是休眠
+          rest=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+            -H "apikey: $SB_KEY" "$SB_URL/rest/v1/profiles?select=id&limit=1")
+          echo "auth_health=$auth rest_profiles=$rest"
+          if [ "$auth" = "200" ]; then
+            echo "✅ 保活成功：项目活跃"
+          else
+            echo "⚠️ Supabase 疑似休眠（auth_health=$auth）"
+            echo "请到 https://supabase.com/dashboard 手动 Restore project"
+            exit 1
+          fi

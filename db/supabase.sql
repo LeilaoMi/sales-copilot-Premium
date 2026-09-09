@@ -330,8 +330,38 @@ create trigger user_settings_touch before insert or update on user_settings
 
 
 -- ============================================================
+-- 7. 快照模式整包表（单人多设备的「Supabase 快照」用）
+--
+--    sync.js 的 supabaseAdapter 读写这张表：一行 = 一个「空间」（id = 空间名）。
+--    注意与上面的 records 体系无关：多人协作请用「Supabase 账号」模式（records），
+--    快照模式的隔离只有「空间名」，知道 URL + anon key + 空间名的人都能读写。
+-- ============================================================
+create table if not exists sales_sync (
+  id         text primary key,             -- 空间名，默认 'default'
+  data       jsonb not null,               -- 整份本地快照
+  updated_at timestamptz not null default now()
+);
+
+alter table sales_sync enable row level security;
+
+drop policy if exists "sales_sync_anon_all" on sales_sync;
+create policy "sales_sync_anon_all" on sales_sync
+  for all to anon, authenticated
+  using (true)
+  with check (true);
+
+drop trigger if exists sales_sync_touch on sales_sync;
+create trigger sales_sync_touch before insert or update on sales_sync
+  for each row execute function touch_updated_at();
+
+
+-- ============================================================
 -- 常见问题
 -- ============================================================
+-- Q: 快照模式同步报 404（或「拉取失败 HTTP 404」）
+--    A: sales_sync 表没建。用「Supabase 快照」模式需要本文件第 7 节的表，
+--       早期版本建过库的可能没有它——重跑一遍本文件即可（幂等）。
+--
 -- Q: 前端报 401
 --    A: 没登录，或者 token 过期了。重新登录即可。
 --
