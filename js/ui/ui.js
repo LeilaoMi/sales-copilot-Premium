@@ -621,7 +621,9 @@
   }
 
   function scriptForm(s, prefill) {
-    const isNew = !s;
+    /* 判定用 !s.id：ai-save-script 会传 {category,title,content} 预填对象（无 id），
+     * 若只判 !s，它会误走 update(undefined) 分支——toast 报「已保存」但记录没入库。 */
+    const isNew = !s || !s.id;
     s = s || { category: '我的实战', title: prefill || '', content: '', tags: '' };
     const cats = Array.from(new Set(S.list('scripts').map(x => x.category)));
     const tagStr = Array.isArray(s.tags) ? s.tags.join('，') : (s.tags || '');
