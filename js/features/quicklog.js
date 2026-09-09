@@ -169,7 +169,10 @@ window.QuickLog = (function () {
     const S = window.Store;
     const t = String(text || '');
     const list = S.list('customers');
-    if (!t || !list.length) return null;
+    /* 没有任何客户时也要返回统一结构——parse() 会直接读 mc.via，
+     * 这里返回 null 的话，新用户（0 客户）第一次用一句话录入就抛 TypeError，
+     * 确认表单弹不出来。空列表和「没匹配到」是同一种结果：没有候选。 */
+    if (!t || !list.length) return { customer: null, via: 'none' };
 
     // 第一轮：全名 / 全名联系人，取最长命中（"恒力精工" 优先于 "恒力"）
     let best = null, bestLen = 0;
