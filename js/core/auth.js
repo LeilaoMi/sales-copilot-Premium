@@ -260,7 +260,9 @@ window.Auth = (function () {
   }
 
   /* 把一个人拉进团队。只有管理员能干，
-   * 而且 RLS 会在数据库层再拦一道——前端判断只是为了让按钮不显示。 */
+   * 而且 RLS 会在数据库层再拦一道——前端判断只是为了让按钮不显示。
+   * return=representation 是关键：RLS 把 update 过滤成 0 行时
+   * PostgREST 依然返回 204，不检查行数就会「提示成功、实际没动」的静默失败。 */
   async function addToTeam(uid, asRole) {
     if (!isAdmin()) throw new Error('只有管理员能加人');
     const r = await api('/rest/v1/profiles?id=eq.' + encodeURIComponent(uid), {
@@ -268,6 +270,7 @@ window.Auth = (function () {
       headers: { 'Prefer': 'return=representation' },
       body: JSON.stringify({ team_id: teamId(), role: asRole || 'member' })
     });
+    if (!r || !r.length) throw new Error('加入失败：数据库没有更新任何行（缺 profile_admin_update 策略？请在 SQL Editor 重跑 db/supabase.sql）');
     return r && r[0];
   }
 
@@ -281,17 +284,19 @@ window.Auth = (function () {
       headers: { 'Prefer': 'return=representation' },
       body: JSON.stringify({ role: newRole })
     });
+    if (!r || !r.length) throw new Error('改角色失败：数据库没有更新任何行（请在 SQL Editor 重跑 db/supabase.sql）');
     return r && r[0];
   }
 
   async function removeFromTeam(uid) {
     if (!isAdmin()) throw new Error('只有管理员能移人');
     if (uid === userId()) throw new Error('不能把自己移出团队');
-    await api('/rest/v1/profiles?id=eq.' + encodeURIComponent(uid), {
+    const r = await api('/rest/v1/profiles?id=eq.' + encodeURIComponent(uid), {
       method: 'PATCH',
-      headers: { 'Prefer': 'return=minimal' },
+      headers: { 'Prefer': 'return=representation' },
       body: JSON.stringify({ team_id: null })
     });
+    if (!r || !r.length) throw new Error('移出失败：数据库没有更新任何行（请在 SQL Editor 重跑 db/supabase.sql）');
     return true;
   }
 

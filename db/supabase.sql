@@ -189,6 +189,20 @@ create policy "profile_self_update" on profiles
   using (id = auth.uid())
   with check (id = auth.uid());
 
+-- 管理员管理成员档案：拉人进队（team_id null → 团队）、移出（→ null）、改角色。
+-- 没有这条策略时，PostgREST 对 update 的 RLS 过滤是「0 行更新、204 空响应」——
+-- 前端不报错、还提示成功，实际什么都没发生（静默失败，比报错更坑）。
+-- with check 只查操作者角色：移出成员时新行 team_id 是 null，
+-- 若条件里带 team_id = my_team_id() 会把自己挡住。
+drop policy if exists "profile_admin_update" on profiles;
+create policy "profile_admin_update" on profiles
+  for update to authenticated
+  using (
+    my_role() in ('owner', 'admin')
+    and (team_id = my_team_id() or team_id is null)
+  )
+  with check (my_role() in ('owner', 'admin'));
+
 -- ---------- teams ----------
 drop policy if exists "team_member_read" on teams;
 create policy "team_member_read" on teams
