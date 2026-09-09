@@ -182,7 +182,11 @@ ${extra ? '\n补充要求：' + extra : ''}`;
       prompt += '任务：客户说了下面这句话，帮我接住。\n';
       prompt += `客户原话：${extra || '（未提供）'}\n`;
       if (customerId) prompt += customerContext(customerId);
-      const hits = (typeof Playbook !== 'undefined' && Playbook.search) ? Playbook.search(extra || '', 3) : [];
+      let hits = (typeof Playbook !== 'undefined' && Playbook.search) ? Playbook.search(extra || '', 3) : [];
+      /* 军火库加载过就一起喂给模型：话术库管「怎么接」，军火库管「业内通常怎么做」 */
+      if (typeof window !== 'undefined' && window.Armory && window.Armory.ready()) {
+        hits = hits.concat(window.Armory.search(extra || '').slice(0, 2));
+      }
       if (hits.length) {
         prompt += '\n本地话术库里找到的参考资料（优先参考这些，它们是自己人实战过的）：\n';
         hits.forEach((h, i) => {

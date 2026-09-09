@@ -54,7 +54,7 @@
 | 客户库 | 分级管理 + 详情时间线 | A 重点 / B 常规 / C 观察；详情含跟进线、关联商机、此刻该说什么 |
 | 商机看板 | 七阶段拖拽推进 | 线索 10% / 接触 25% / 方案 45% / 报价 65% / 谈判 80% / 赢单 100%，输单不在板上 |
 | 跟进日志 | 全部跟进倒序 | 按客户、类型筛选；聊天记录一键提取承诺 / 异议 / 下一步，可勾选 AI 深度解析（多出摘要与建议回复，需配 AI Key） |
-| 话术库 | 48 条实战 + 语义搜索 | 9 大类，一键复制，赢输单可沉淀自己的话术 |
+| 话术库 | 48 条实战 + 语义搜索 | 9 大类，一键复制，赢输单可沉淀自己的话术；可加载「实战军火库」（82 条知识型条目，随站点部署、懒加载、复用同一检索引擎），看中哪条一键存入自己的话术库 |
 | 周报 | 自动归拢一周动作 | 新增客户、推进商机、跟进次数、下周待办，可复制发出 |
 | AI 助手 | 可选增强 | 销售建议、话术生成、周报润色、输单复盘，需配 Key |
 | 团队看板 | 只管理员可见 | 全队在谈金额 / 商机数 / 赢单数，不显示客户具体名字 |
@@ -222,11 +222,12 @@ sales-copilot-hy4/
 ├── index.html / manifest.json / sw.js / vercel.json / wrangler.toml
 ├── assets/css/styles.css / assets/icons/
 ├── js/core/store.js sync-core.js sync.js auth.js team.js
-├── js/features/quicklog.js health.js playbook.js coach.js sparring.js digest.js report.js charts.js ai.js notify.js
+├── js/features/quicklog.js health.js playbook.js coach.js sparring.js digest.js report.js charts.js ai.js notify.js armory.js
 ├── js/ui/views.js ui.js
 ├── server/server.js
 ├── db/supabase.sql
-├── tools/build.js push-to-github.sh
+├── kb/knowledge.json 军火库数据（tools/gen-kb-seed.py 生成，AI 辅助整理，用前自行核实）
+├── tools/build.js gen-kb-seed.py push-to-github.sh
 ├── deploy/ Dockerfile _headers EdgeOne systemd
 ├── docs/DEPLOY.md
 ├── public/ 构建产物已忽略

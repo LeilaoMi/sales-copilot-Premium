@@ -63,6 +63,15 @@ if (process.argv.includes('--pages')) {
   });
   fs.copyFileSync(path.join(root, 'manifest.json'), path.join(outDir, 'manifest.json'));
 
+  /* 军火库静态数据：随部署走，懒加载，不进 sw 预缓存（体量大，
+   * 塞进离线缓存得不偿失 —— 本地 48 条话术离线够用，军火库联网再搜） */
+  const kbSrc = path.join(root, 'kb', 'knowledge.json');
+  if (fs.existsSync(kbSrc)) {
+    fs.mkdirSync(path.join(outDir, 'kb'), { recursive: true });
+    fs.copyFileSync(kbSrc, path.join(outDir, 'kb', 'knowledge.json'));
+    console.log('  ✓ 已带上 kb/knowledge.json（军火库数据）');
+  }
+
   /* 缓存规则的源文件放在 deploy/ 而不是 public/ ——
    * public/ 每次构建都要清空，手写的东西放那儿迟早被删掉，
    * 而且删了不报错，只会表现为「改了没生效」。
@@ -108,13 +117,15 @@ if (process.argv.includes('--pages')) {
     console.log('  ✓ sw.js 预缓存清单已按 index.html 重写（' + jsFiles.length + ' 个脚本）');
   }
 
-  /* 目录里必须闹明白有没有 data/ —— 有就是事故，直接报错拦下来 */
+  /* 目录里必须闹明白有没有 data/ —— 有就是事故，直接报错拦下来
+   * 白名单：kb/knowledge.json 是随站发布的静态知识库（无客户数据），
+   * 其余 .json 一律视为泄漏 */
   const leaked = [];
   (function walk(d, rel) {
     fs.readdirSync(d, { withFileTypes: true }).forEach(e => {
       const r = rel ? rel + '/' + e.name : e.name;
       if (e.isDirectory()) { if (e.name === 'data') leaked.push(r); else walk(path.join(d, e.name), r); }
-      else if (/\.json$/i.test(e.name) && e.name !== 'manifest.json') leaked.push(r);
+      else if (/\.json$/i.test(e.name) && e.name !== 'manifest.json' && r !== 'kb/knowledge.json') leaked.push(r);
     });
   })(outDir, '');
 

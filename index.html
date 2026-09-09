@@ -89,6 +89,8 @@
 <!-- playbook.js 必须排在 store.js 前面：
      数据迁移时要读它的种子话术，晚加载就补不上 -->
 <script src="js/features/playbook.js"></script>
+<!-- armory.js 复用 playbook 的检索引擎，必须排在它后面；自带界面与事件，views 只留挂载点 -->
+<script src="js/features/armory.js"></script>
 <script src="js/core/store.js"></script>
 <!-- auth.js 读 Store 里的云配置，sync.js 的账号通道要调 Auth，所以夹在两者之间 -->
 <script src="js/core/auth.js"></script>

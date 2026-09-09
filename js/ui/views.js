@@ -891,7 +891,9 @@ window.Views = (function () {
       </div>`}
 
       <div id="pb-results">${resultsHtml}</div>
-    </div>`;
+    </div>
+
+    ${window.Armory ? `<div id="kb-box">${window.Armory.box()}</div>` : ''}`;
   }
 
   /* 只重绘结果区 —— 整页重绘会让搜索框失焦，输入一个字就跳一下，没法用 */
