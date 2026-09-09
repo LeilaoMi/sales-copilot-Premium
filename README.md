@@ -256,12 +256,10 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 | 自有服务器 / 树莓派 | `node server/server.js`（模板 `deploy/Dockerfile`、`deploy/sales-copilot.service`） | 两条都行 |
 | 腾讯云 EdgeOne Pages | 见 `deploy/edgeone/README.md`，用 Pages Blob 提供 `/api/sync`，免持久文件系统 | 自建接口 |
 
-**本项目的线上地址口径**：对外一律用自定义域 **`https://sales.leilaomi.cc.cd`**。
-CF Pages 的默认子域是 `sales-copilot-hy4.pages.dev`——它是项目**创建那一刻**按当时名字定下来的，
-Cloudflare 明确 `*.pages.dev` 子域不可更改（实测 `PATCH` 传 `subdomain` 返回成功但静默忽略，
-手工把 `xxx.pages.dev` 当附加域名挂上去则报 `invalid TLD`），所以它只作为部署预览地址存在
-（每次部署另有 `https://<short-id>.sales-copilot-hy4.pages.dev` 的固定快照地址）。
-书签、分享、写文档都走自定义域，别贴 pages.dev。
+**线上地址**：<https://sales.leilaomi.cc.cd>。
+Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.pages.dev` 快照地址）
+只当**部署预览**用，别拿它当长期入口 —— 那个子域由项目名在创建那一刻定下来，
+之后改不掉（只能删项目重建），所以新建项目时名字要想清楚。书签、分享、写文档都走自定义域。
 
 构建脚本 `node tools/build.js --pages` 做四件事，别用手敲 `cp` 替代：清仓重建 `public/`、按 `index.html` 的实际引用复制资源、把 `deploy/_headers` 复制过去（缺了就报错拦停）、**重写 `public/sw.js` 的预缓存清单**（离线漏模块这个坑踩过两次，靠人记注释靠不住）。
 
@@ -406,7 +404,6 @@ PORT=8080 node server/server.js
 | 清空数据后示例又长回来 | 已修（`onboarded` 标记跟同步走）。若复现，按 `docs/DEPLOY.md` 5.2 处理 |
 | 月初回款预测显示 0 | 已修。没填预计成交日的单按最低估并提醒补 |
 | 同一浏览器换账号看到上一个人的数据 | 设计如此。localStorage 按网站分不按账号分，退出登录不清业务数据。要验证隔离请用两个浏览器或无痕窗口 |
-| 线上子域还叫 `sales-copilot-hy4.pages.dev` | 正常，且改不了：CF 的 `*.pages.dev` 子域在项目创建时定死。对外请用 `https://sales.leilaomi.cc.cd`（见[第 6 节](#6-部署到线上)） |
 | 通知不响 | 需 HTTPS 且要授予通知权限；被拒时退化为页面角标。只提醒逾期和 48 小时内到期 |
 
 ---

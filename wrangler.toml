@@ -20,12 +20,12 @@
 # 详细步骤见 DEPLOY.md。
 # ============================================================
 
-# Pages 项目名。以 `wrangler pages project list` 的输出为准，别凭记忆写 ——
-# 之前这里是旧名 sales-copilot，账号下的真实项目早改成了 sales-copilot-premium，
-# 于是按本文件走命令行部署会直接报 Project not found [code: 8000007]。
+# Pages 项目名，必须与 Cloudflare 账号下的实际项目**逐字一致**，
+# 不确定就先列一遍：`npx wrangler pages project list`。
+# 对不上时 wrangler 只会报 `Project not found [code: 8000007]`。
 #
-# 顺带一句：GitHub 仓库改名**不影响**后台的 Git 自动部署 ——
-# Pages 绑定存的是仓库的永久 ID，不是名字，所以只有这里的名字要跟着改。
+# 另：GitHub 仓库改名**不影响**后台的 Git 自动部署 —— Pages 绑定存的是仓库的永久 ID，
+# 不是名字，所以仓库改名时这个字段不用跟着动。
 name = "sales-copilot-premium"
 
 # 部署出去的目录。
