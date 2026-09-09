@@ -351,9 +351,24 @@ window.Store = (function () {
     return n;
   }
 
+  /* 清掉本机的示例数据（带 demo 标记的记录）。
+   * 场景：新设备先打开过页面（灌了一轮示例）后来才登录账号——
+   * 示例记录不上云（sync 层有意过滤），不清的话它们会留在本地，
+   * 和同步拉下来的真实数据混在一起。墓碑保留（删除动作要能传播），
+   * 用户自己建的数据一条不碰。 */
+  function purgeDemo() {
+    let n = 0;
+    SYNC_KEYS.forEach(k => {
+      const before = state[k].length;
+      state[k] = state[k].filter(x => !x.demo || x.deleted);
+      n += before - state[k].length;
+    });
+    if (n) save();
+    return n;
+  }
+
   /* 联动：删除客户时清理其商机与跟进（同为软删除，才能同步） */
-  function removeCustomer(id) {
-    state.deals.forEach(d => { if (d.customerId === id && !d.deleted) { d.deleted = true; d.updatedAt = Date.now(); } });
+  function removeCustomer(id) {    state.deals.forEach(d => { if (d.customerId === id && !d.deleted) { d.deleted = true; d.updatedAt = Date.now(); } });
     state.followups.forEach(f => { if (f.customerId === id && !f.deleted) { f.deleted = true; f.updatedAt = Date.now(); } });
     remove('customers', id);
   }
@@ -753,7 +768,7 @@ window.Store = (function () {
     KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
     addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, sum, daysLeftInMonth,
-    load, save, reset, seed, isPersistent, migrate, revision, purge,
+    load, save, reset, seed, isPersistent, migrate, revision, purge, purgeDemo,
     shouldSeedDemo, markOnboarded,
     list, get, insert, update, remove, removeCustomer, setStage,
     stats, customerMeta, customerName, dealName,

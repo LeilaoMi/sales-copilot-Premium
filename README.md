@@ -186,6 +186,8 @@ SYNC_TOKEN=你的长令牌 node server/server.js
 
 本地优先，先写 localStorage。按 updatedAt 逐条 LWW，删除走墓碑。不配只本地，Supabase 长期多人，自建跑 `server/server.js`。Pages / Vercel 跑不了 Node，必须走 Supabase。
 
+**登录门**：Supabase 地址/key 出厂内置（`auth.js` 的 `DEFAULT_CLOUD`，publishable key 本就公开）。新设备首次打开自动弹全屏登录页——登录即自动开启「Supabase 账号」同步并拉取数据，手机电脑同一份；想纯本地用点「先逛逛」（之后不再自动弹，登录成功会清掉该标记）。本地残留的示例数据在首次同步后自动清理（`Store.purgeDemo`），不会混进真实数据。
+
 ---
 
 ## 5. 部署到线上

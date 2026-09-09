@@ -27,7 +27,15 @@ window.Auth = (function () {
   const notify = () => listeners.forEach(fn => { try { fn(); } catch (e) {} });
 
   /* ---------- 配置 ---------- */
-  function cfg() { return (S.state.settings || {}).cloud || {}; }
+  /* 出厂内置的云配置。publishable key 本来就是公开值（随前端分发给每个访问者），
+   * 内置它，新设备打开登录页就能直接登录——不用先去设置页抄一遍地址和 key。
+   * 设置里「换一个 Supabase 项目」填的值存 settings.cloud，会覆盖这里的默认；
+   * 把值清空则回到默认项目（而不是「无配置」——没有配置登录页就没法干活）。 */
+  const DEFAULT_CLOUD = {
+    url: 'https://jdeuqdxkktlaerpiwqcj.supabase.co',
+    key: 'sb_publishable_jdB5TtbLc-wTTu9xrtsCvA_146cmvay'
+  };
+  function cfg() { return Object.assign({}, DEFAULT_CLOUD, (S.state.settings || {}).cloud || {}); }
   function saveCfg(patch) {
     S.state.settings.cloud = Object.assign({}, cfg(), patch);
     S.save();

@@ -1246,6 +1246,45 @@
       } catch (e) { toast('登录失败：' + e.message, 'err'); }
       render();
     },
+
+    /* ---------- 登录门 ---------- */
+    'gate-login': async () => {
+      const mail = readVal('gate-email'), pwd = $('#gate-pwd') ? $('#gate-pwd').value : '';
+      if (!mail || !pwd) { gateHint('邮箱和密码都要填'); return; }
+      gateHint('正在登录…');
+      try {
+        await Auth.signIn(mail, pwd);
+        gateHint('登录成功，正在拉取云端数据…');
+        await gateFinishAuth();
+        toast('已同步云端数据', 'ok');
+      } catch (e) { gateHint('登录失败：' + e.message); }
+    },
+    'gate-signup': async () => {
+      const mail = readVal('gate-email'), pwd = $('#gate-pwd') ? $('#gate-pwd').value : '';
+      const name = readVal('gate-name');
+      if (!mail || !pwd) { gateHint('邮箱和密码都要填'); return; }
+      if (pwd.length < 6) { gateHint('密码至少 6 位'); return; }
+      gateHint('正在注册…');
+      try {
+        const r = await Auth.signUp(mail, pwd, name);
+        if (r.needConfirm) {
+          gateHint('注册成功，请先去邮箱点确认链接，再回来点「登录」');
+        } else {
+          gateHint('注册成功，正在初始化…');
+          await gateFinishAuth();
+          toast('注册成功，已开启全设备同步', 'ok');
+        }
+      } catch (e) { gateHint('注册失败：' + e.message); }
+    },
+    'gate-skip': () => {
+      /* 先逛逛 = 本地模式。记下这个选择，本次及以后不再自动弹门
+       * （想去同步随时在设置里登录）；登录成功会清掉这个标记。 */
+      try { localStorage.setItem(GATE_SKIP_KEY, '1'); } catch (e) {}
+      hideGate();
+      maybeSeedDemo();
+      render();
+      toast('已进入本地模式，数据只存这台设备；想同步随时在「设置」里登录', 'ok');
+    },
     'cloud-logout': async () => {
       await Auth.signOut();
       toast('已退出，本地数据原封不动', 'ok');
@@ -1856,6 +1895,53 @@
     loadTeam();
   }
 
+  /* ============================================================
+   * 登录门：新设备首次打开，先登录再进主界面
+   * ============================================================
+   * 用户要的是旧 sales-copilot 的体验：打开网页就是登录页，登录后全设备一致。
+   * hy4 本来是「本地优先、设置页里悄悄登录」——对新设备来说等于没有入口：
+   * 配置和登录态都在 localStorage 里，换台设备全是白纸。
+   * 三件事让它成立：云配置出厂内置（auth.js DEFAULT_CLOUD）、这层全屏登录门、
+   * 登录成功自动切账号同步（gateFinishAuth）。
+   * 「先逛逛」保留本地优先的铁律——想纯本地用的人点一下就再也不弹。 */
+  const GATE_SKIP_KEY = 'sc.auth.gateSkipped';
+  function shouldGate() {
+    try {
+      return !!(window.Auth && Auth.configured() && !Auth.isOn()
+        && !localStorage.getItem(GATE_SKIP_KEY));
+    } catch (e) { return false; }
+  }
+  function showGate() {
+    if ($('#login-gate')) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = V.loginGate();
+    document.body.appendChild(wrap.firstElementChild);
+  }
+  function hideGate() {
+    const g = $('#login-gate');
+    if (g) g.remove();
+  }
+  function gateHint(msg) {
+    const h = $('#gate-hint');
+    if (h) h.textContent = msg || '';
+  }
+  /* 登录/注册成功后的统一动作。与设置页登录（afterLogin）的差异：
+   * 这里「自动切到账号同步」——走登录门的设备本地是白纸（或只剩示例），
+   * 意图就是「登录拿数据」，不需要也不应该再问一遍。 */
+  async function gateFinishAuth() {
+    try { localStorage.removeItem(GATE_SKIP_KEY); } catch (e) {}
+    Sync.saveCfg({ mode: 'cloud' });
+    await Promise.resolve(Sync.start()).catch(() => null);
+    /* 顺序有讲究：先清本机示例（它们不上云，留着会混进真实数据），
+     * 再判要不要给全新账号灌示例——此时云端有没有数据已经落定。 */
+    S.purgeDemo();
+    maybeSeedDemo();
+    renderSyncStatus();
+    hideGate();
+    render();
+    loadTeam();
+  }
+
   /* 团队看板的数据是异步拉的。刻意只重刷这一屏而不调 render()——
    * render 里又会根据「没数据」触发一次加载，那就是死循环了。 */
   let boardData = null;
@@ -1953,7 +2039,12 @@
       Sync.on(renderSyncStatus);
       renderSyncStatus();
     }
-    if (cloudOn) {
+    if (shouldGate()) {
+      /* 新设备（云配置就绪、未登录、没点过「先逛逛」）：先登录再谈同步。
+       * 示例数据不在这里灌——登录成功后 gateFinishAuth 按云端有没有数据决定，
+       * 点「先逛逛」走的是 action 里的本地模式分支。 */
+      showGate();
+    } else if (cloudOn) {
       /* 账号模式要先确认登录态：没登录就别白跑一趟同步，
        * 但也不能因此卡住启动——就跟断网一样，跳过就是了。 */
       if ((Sync.cfg().mode || '') === 'cloud' && window.Auth && !Auth.isOn()) {

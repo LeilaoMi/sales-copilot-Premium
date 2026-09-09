@@ -1115,6 +1115,40 @@ window.Views = (function () {
       </div>`;
   }
 
+  /* ---------- 登录门：新设备首次打开的全屏登录层 ----------
+   * 为什么存在：登录态存 localStorage，换台设备就是一张白纸；
+   * 「打开网页先登录，登录后全设备一致」靠这一层实现。
+   * 云配置已内置默认值（auth.js 的 DEFAULT_CLOUD），所以这里不需要先填地址。
+   * 「先逛逛」给想纯本地用的人留出口——点过之后不再自动弹（登录成功会清掉这个标记）。 */
+  function loginGate() {
+    return `
+    <div id="login-gate" style="position:fixed;inset:0;z-index:999;background:#eef2f7;overflow:auto">
+      <div style="max-width:400px;margin:7vh auto 40px;padding:0 16px">
+        <div style="text-align:center;margin-bottom:14px">
+          <div style="font-size:32px;font-weight:800;color:#2563eb;letter-spacing:1px">销冠助手</div>
+          <div class="muted small" style="margin-top:4px">登录同一个账号，手机和电脑的数据就是同一份</div>
+        </div>
+        <div class="card">
+          <div class="field"><label>邮箱</label>
+            <input id="gate-email" type="email" placeholder="you@example.com" autocomplete="email"></div>
+          <div class="field"><label>密码</label>
+            <input id="gate-pwd" type="password" placeholder="至少 6 位" autocomplete="current-password"></div>
+          <div class="field"><label>显示名（只有注册时用）</label>
+            <input id="gate-name" placeholder="张三（登录已有账号可留空）"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+            <button class="btn btn-primary" data-action="gate-login">登录</button>
+            <button class="btn" data-action="gate-signup">注册新账号</button>
+          </div>
+          <div class="hint" id="gate-hint" style="margin-top:10px"></div>
+          <div class="hint" style="margin-top:6px;border-top:1px solid #e2e8f0;padding-top:8px">
+            想先本地用用看？<button class="btn btn-ghost btn-sm" data-action="gate-skip">先逛逛，暂不同步</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+
   /* 团队区：管理员看得到成员表和邀请码，普通成员只看到自己这一行。
    * 成员列表和邀请码都要发请求，所以这里先给占位，由 ui.js 拿到数据后填。 */
   function teamArea() {
@@ -1663,7 +1697,7 @@ window.Views = (function () {
   }
 
   return { dash, customers, customerDetail, deals, followups, scripts, scriptResults, report, settings, ai, team,
-    stageBadge, levelTag, morningBrief, healthCard, healthDot, PUBLIC_ENDPOINT,
+    stageBadge, levelTag, morningBrief, healthCard, healthDot, PUBLIC_ENDPOINT, loginGate,
     /* 换服务商时 ui.js 要重算这段说明（跨域警示得跟着变），所以导出 */
     aiProviderHint };
 })();
