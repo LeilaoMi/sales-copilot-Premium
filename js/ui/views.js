@@ -1180,6 +1180,8 @@ window.Views = (function () {
           <input id="ai-base" value="${E(ai.base || 'https://api.deepseek.com/v1')}" placeholder="https://api.deepseek.com/v1"></div>
         <div class="field"><label>API Key</label>
           <input id="ai-key" type="password" value="${E(ai.key || '')}" placeholder="sk-..."></div>
+        <div class="field"><label>Tavily API Key（选填 · 联网情报）</label>
+          <input id="tavily-key" type="password" value="${E((s.tavily && s.tavily.key) || '')}" placeholder="tvly-...（tavily.com 免费注册，每月 1000 次）"></div>
         <div class="field"><label>模型名</label>
           <div style="display:flex;gap:6px">
             <input id="ai-model" value="${E(ai.model || 'deepseek-chat')}" placeholder="deepseek-chat" style="flex:1">

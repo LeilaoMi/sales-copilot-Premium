@@ -119,7 +119,7 @@ window.AI = (function () {
   }
 
   /* ---------- Prompt 工厂 ---------- */
-  function buildPrompt(scenario, customerId, extra) {
+  function buildPrompt(scenario, customerId, extra, webCtx) {
     const now = S.fmtDateTime(new Date());
     let prompt = `[当前时间：${now}]\n`;
     prompt += `你是一名经验丰富的 B2B 销售顾问，擅长写跟进话术、销售周报、复盘分析和作战建议。回答要具体、可执行，不要用套话。\n\n`;
@@ -155,18 +155,22 @@ window.AI = (function () {
     else if (scenario === 'intel') {
       prompt += '任务：为这家客户写一份作战简报。\n';
       prompt += customerContext(customerId, true);
+      if (webCtx) prompt += '\n' + webCtx + '\n';
       prompt += `
 输出严格按这六段，每段一个小标题：
-① 背景：这家公司是做什么的、大概什么规模（基于你的了解和上面给的信息）
-② 行业痛点 TOP3：这个行业通常最头疼的三件事
+① 背景：这家公司是做什么的、大概什么规模${webCtx ? '（优先引用上面搜到的实时情报，搜索结果没提的才靠你的知识并标「（待核实）」）' : '（基于你的了解和上面给的信息）'}
+② 行业痛点 TOP3：这个行业通常最头疼的三件事${webCtx ? '，优先从搜索结果里归纳' : ''}
 ③ 决策人关心什么：按上面给的联系人职务，猜他最在意什么
-④ 中文开场白：一条可以直接发微信的开场白，60 字以内
+④ 中文开场白：一条可以直接发微信的开场白，60 字以内${webCtx ? '，尽量结合搜到的真实动态' : ''}
 ⑤ 英文开场白：一条英文版开场白，60 词以内
 ⑥ 雷区：跟这类客户打交道容易踩的坑，3 条
 
 **极其重要**：
-- 你没有联网，上面给的信息有限。凡是**推测**的内容，必须在句尾标注「（待核实）」。
-- 行业痛点、决策人关注点这类通用判断，请明确写成「这个行业通常……」而不是断言「这家公司就是……」。
+${webCtx
+? `- 【联网情报】是刚从网上搜到的，背景与行业痛点**优先引用它**；开场白里提到的公司动态必须来自搜索结果，搜不到的不要编。
+- 搜索结果也可能过时或不准，凡是推测的内容，句尾标注「（待核实）」。`
+: `- 你没有联网，上面给的信息有限。凡是**推测**的内容，必须在句尾标注「（待核实）」。
+- 行业痛点、决策人关注点这类通用判断，请明确写成「这个行业通常……」而不是断言「这家公司就是……」。`}
 - 宁可说「不确定」，也不要编得像亲眼见过。销售拿着一份编出来的简报去见客户，比没有简报更糟。
 ${extra ? '\n补充要求：' + extra : ''}`;
     }
@@ -465,6 +469,82 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     return null;
   }
 
+  /* ---------- Tavily 联网情报（可选增强）----------
+   * 同款项目把 Tavily 双查询做成了情报官的核心，
+   * 这里把它降级成 intel 场景的可选增强：
+   * 填了 Key，作战简报生成前先联网搜一轮真实情报；
+   * 不填，维持纯模型 + 「待核实」标注的降级模式，一秒都不耽误用。
+   *
+   * 为什么浏览器直连可行：Tavily 的 API 给标准跨域头
+   * （2026-09-09 实测 OPTIONS 预检通过，allow-origin 回显 Origin），
+   * 和那 5 家连 /models 都不让直连的 LLM 服务商不一样。
+   * Key 同样只存本机 localStorage，不经过任何第三方。 */
+  function tavilyCfg() { return (S.state.settings && S.state.settings.tavily) || {}; }
+  function saveTavilyCfg(patch) {
+    S.state.settings.tavily = Object.assign({}, tavilyCfg(), patch);
+    S.state.settings.updatedAt = Date.now();
+    S.save();
+  }
+  function tavilyReady() { return !!(tavilyCfg().key || '').trim(); }
+
+  async function tavilySearch(query, maxResults) {
+    const key = (tavilyCfg().key || '').trim();
+    if (!key) throw new Error('还没配置 Tavily Key（设置 → AI 助手 → Tavily 联网情报）');
+    let resp;
+    try {
+      resp = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify({
+          query: query,
+          max_results: Math.min(Math.max(maxResults || 5, 1), 10),
+          search_depth: 'basic'
+        })
+      });
+    } catch (e) {
+      throw new Error('连不上 Tavily。检查网络；如果你在无痕模式或装了拦截插件，先放行 api.tavily.com');
+    }
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      try { const e = await resp.json(); msg += ' · ' + ((e.detail && e.detail.error) || e.error || e.message || ''); } catch (e2) {}
+      if (resp.status === 401 || resp.status === 403) msg += '（Tavily Key 无效，去 tavily.com 检查）';
+      if (resp.status === 429 || resp.status === 432) msg += '（免费额度用完或请求太频，免费版每月 1000 次）';
+      throw new Error(msg);
+    }
+    const data = await resp.json().catch(() => ({}));
+    return (data.results || []).map(r => ({ title: r.title || '', url: r.url || '', content: r.content || '' }));
+  }
+
+  /* 双查询：公司业务+最新动态 / 行业趋势+痛点，和同款项目同一套拆法。
+   * 两路并行，谁失败都不断总——至少另一路还有货。 */
+  async function intelSearch(customerId) {
+    const c = customerId ? S.get('customers', customerId) : null;
+    const company = c ? (c.name || '').trim() : '';
+    const industry = c ? (c.industry || '').trim() : '';
+    const q1 = company ? company + ' 公司 业务 最新动态' : '';
+    const q2 = industry ? industry + ' 行业 趋势 痛点' : '';
+    if (!q1 && !q2) return { text: '', note: '客户没填公司名和行业，没法组搜索词，改用纯模型模式' };
+
+    const jobs = [];
+    if (q1) jobs.push(tavilySearch(q1, 5));
+    if (q2) jobs.push(tavilySearch(q2, 5));
+    const settled = await Promise.allSettled(jobs);
+    const all = [];
+    const fails = [];
+    settled.forEach(r => {
+      if (r.status === 'fulfilled') all.push(...r.value);
+      else fails.push(String((r.reason && r.reason.message) || r.reason));
+    });
+    if (!all.length) throw new Error(fails[0] || 'Tavily 两个查询都没返回结果');
+
+    let text = '【联网搜集到的实时情报（Tavily 搜索，生成前刚抓的）】\n';
+    all.slice(0, 8).forEach((r, i) => {
+      text += '[' + (i + 1) + '] ' + r.title + '\n    ' + String(r.content).replace(/\s+/g, ' ').slice(0, 260) + '\n    来源：' + r.url + '\n';
+    });
+    const note = fails.length ? ('其中一路查询失败，用了另一路的结果：' + fails[0]) : '';
+    return { text, note };
+  }
+
   /* ---------- 历史配置 ----------
    * 只存 key 的前几位，不存明文。
    * 切换历史时如果没重新填 key，就沿用在用的那个——
@@ -490,6 +570,7 @@ ${extra ? '\n补充要求：' + extra : ''}`;
   return {
     PROVIDERS, GROUPS, cfg, saveCfg, endpoint, modelName,
     buildPrompt, ask, chat, testConnection, listModels, probeBase,
-    pushHistory, customerContext, weeklyContext, lostContext
+    pushHistory, customerContext, weeklyContext, lostContext,
+    tavilyCfg, saveTavilyCfg, tavilyReady, intelSearch
   };
 })();

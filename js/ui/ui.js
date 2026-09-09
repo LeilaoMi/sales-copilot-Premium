@@ -976,7 +976,11 @@
     'save-ai': async () => {
       const s = S.state.settings;
       syncAIFromInputs();
-      if (!s.ai.key) { toast('已清空 API 配置', 'ok'); render(); return; }
+      /* Tavily Key 和 AI Key 独立保存：只填 Tavily 不填 AI Key 也算有效配置，
+       * 不能被下面 ai.key 的空判断挡掉 */
+      const tk = $('#tavily-key');
+      if (tk) AI.saveTavilyCfg({ key: tk.value.trim() });
+      if (!s.ai.key) { toast('已保存。AI 助手还没配 Key，联网情报已可用（生成简报仍需配 AI）', 'ok'); render(); return; }
       AI.pushHistory(s.ai);
       toast('正在测试连接…', 'ok');
       try { await AI.testConnection(); toast('连接成功，AI 助手已可用', 'ok'); }
@@ -1399,7 +1403,21 @@
       const out = $('#ai-output');
       out.value = '正在生成，请稍候…';
       try {
-        const prompt = AI.buildPrompt(scenario, customerId, extra);
+        /* 作战简报 + 配了 Tavily：先联网搜集真实情报再生成。
+         * 搜集失败不拦总——toast 说明原因，降级成纯模型模式继续出简报。 */
+        let webCtx = '';
+        if (scenario === 'intel' && AI.tavilyReady()) {
+          out.value = '正在联网搜集情报（Tavily 双查询：公司动态 + 行业痛点）…';
+          try {
+            const r = await AI.intelSearch(customerId);
+            webCtx = r.text;
+            if (r.note) toast(r.note, 'err');
+          } catch (e) {
+            toast('联网情报失败，改用纯模型模式：' + e.message, 'err');
+          }
+          out.value = '正在生成，请稍候…';
+        }
+        const prompt = AI.buildPrompt(scenario, customerId, extra, webCtx);
         window._lastPrompt = prompt;
         const text = await AI.ask(prompt);
         out.value = text;
@@ -1424,7 +1442,7 @@
       const v = $('#ai-output').value;
       if (!v) { toast('还没有内容', 'err'); return; }
       const scenario = $('#ai-scenario').value;
-      scriptForm({ category: 'AI生成', title: 'AI-' + ({ followup: '跟进话术', weekly: '周报', lost: '复盘', battle: '作战建议' }[scenario] || '生成'), content: v });
+      scriptForm({ category: 'AI生成', title: 'AI-' + ({ followup: '跟进话术', weekly: '周报', lost: '复盘', battle: '作战建议', intel: '作战简报' }[scenario] || '生成'), content: v });
     },
     'copy-datacode': () => {
       const code = btoa(unescape(encodeURIComponent(S.exportJSON())));
