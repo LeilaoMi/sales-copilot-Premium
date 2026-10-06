@@ -1,5 +1,8 @@
-# Supabase 免费项目保活：每 3 天 ping 一次，防止 7 天不活跃被暂停。
+# Supabase 免费项目保活：每 3 天做一次真实数据库写入，防止 7 天不活跃被暂停。
+# - 关键：2026 年起只读 ping（/auth/v1/health、SELECT）不再被稳定计入活跃，
+#   必须 INSERT 一条真实数据。保活表见 db/keepalive.sql（需在 SQL Editor 执行一次）。
 # - 用的是 publishable key（anon 级），本来就会随前端 JS 分发给所有访问者，明文存放无风险。
+# - 保活表写入失败时任务标红（GitHub 会发邮件），提醒去执行建表 SQL。
 # - 检测到休眠时任务标红并提醒去 Dashboard 手动 Restore（GitHub 会发邮件）。
 # - 注意：GitHub 会在仓库 60 天无提交后自动停用定时任务，届时重新启用或推一次代码即可。
 name: supabase-keepalive
@@ -16,23 +19,48 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase（保活 + 休眠检测）
+      - name: 保活（真实写入 keepalive_logs）
         env:
           SB_URL: "https://jdeuqdxkktlaerpiwqcj.supabase.co"
           SB_KEY: "sb_publishable_jdB5TtbLc-wTTu9xrtsCvA_146cmvay"
         run: |
-          # 判定依据：/auth/v1/health（GoTrue 健康检查，不依赖建表，publishable key 可访问）
-          # 注意：/rest/v1/ 根路径要求 secret key，publishable 必 401，不能当休眠信号
+          # 1) 休眠检测：GoTrue 健康检查
           auth=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
             -H "apikey: $SB_KEY" "$SB_URL/auth/v1/health")
-          # REST 探测仅供观察：恢复后 200（表已建）或 404（表未建）都算网关活着，5xx 才是休眠
-          rest=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
-            -H "apikey: $SB_KEY" "$SB_URL/rest/v1/profiles?select=id&limit=1")
-          echo "auth_health=$auth rest_profiles=$rest"
-          if [ "$auth" = "200" ]; then
-            echo "✅ 保活成功：项目活跃"
-          else
+          echo "auth_health=$auth"
+          if [ "$auth" != "200" ]; then
             echo "⚠️ Supabase 疑似休眠（auth_health=$auth）"
             echo "请到 https://supabase.com/dashboard 手动 Restore project"
+            exit 1
+          fi
+
+          # 2) 真实写入：INSERT 一条保活记录（这才是被计入活跃的动作）
+          insert=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+            -X POST "$SB_URL/rest/v1/keepalive_logs" \
+            -H "apikey: $SB_KEY" \
+            -H "Authorization: Bearer $SB_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{}')
+          echo "insert_status=$insert"
+
+          # 3) 读验证：确认写入可见
+          read=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+            -H "apikey: $SB_KEY" \
+            "$SB_URL/rest/v1/keepalive_logs?select=id&order=pinged_at.desc&limit=1")
+          echo "read_status=$read"
+
+          # 4) 清理 30 天前的旧记录，表永远只有几十行
+          cutoff=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          curl -s -o /dev/null --max-time 30 -X DELETE \
+            -H "apikey: $SB_KEY" \
+            -H "Authorization: Bearer $SB_KEY" \
+            "$SB_URL/rest/v1/keepalive_logs?pinged_at=lt.$cutoff"
+
+          if [ "$insert" = "201" ] && [ "$read" = "200" ]; then
+            echo "✅ 保活成功：已写入 keepalive_logs"
+          else
+            echo "⚠️ 保活写入异常（insert=$insert read=$read）"
+            echo "多半是保活表还没建：请在 Supabase SQL Editor 里执行 db/keepalive.sql 后再手动触发一次"
             exit 1
           fi
