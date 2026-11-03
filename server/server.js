@@ -252,6 +252,15 @@ function isPrivatePath(pathname) {
   if (top === 'data' || top === 'server' || top === 'node_modules') return true;
   return segs.some(s => s.charCodeAt(0) === 46);   // 46 = '.'，覆盖 .env / .git / .vercel 等
 }
+/* 白名单（审计 M27）：黑名单挡得住 data/ 却漏了 db/、tools/、docs/、deploy/ 这些
+ * 本就不该公网下载的目录。只放行前端真正要加载的东西，其余一律 404。
+ * 黑名单仍保留，作为第二道闸。 */
+const PUBLIC_FILES = new Set(['/', '/index.html', '/sw.js', '/manifest.json']);
+const PUBLIC_DIRS = ['/js/', '/assets/', '/kb/'];
+function isPublicPath(pathname) {
+  if (PUBLIC_FILES.has(pathname)) return true;
+  return PUBLIC_DIRS.some(d => pathname.startsWith(d));
+}
 
 const server = http.createServer((req, res) => {
   /* 畸形百分号编码（如 /%E0%A4%A）会让 decodeURIComponent 抛 URIError。
@@ -366,12 +375,22 @@ const server = http.createServer((req, res) => {
     return send(res, 405, { error: '不支持的方法' });
   }
 
+  // 未实现的 /api/* 明确 404，不再回退成 index.html 的 200（审计 M27：客户端会把 HTML 当成 JSON 解析）
+  if (pathname.startsWith('/api/')) return send(res, 404, { error: '接口不存在' });
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: '不支持的方法' });
+
   // 静态文件
   let file = path.join(ROOT, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(ROOT)) return send(res, 403, { error: '禁止访问' });
   if (isPrivatePath(pathname)) return send(res, 403, { error: '禁止访问' });
+  /* 不在白名单里：带扩展名的当成文件请求，404；不带扩展名的当成前端路由，回 index.html */
+  if (!isPublicPath(pathname)) {
+    if (path.extname(pathname)) return send(res, 404, { error: '文件不存在' });
+    file = path.join(ROOT, 'index.html');
+  }
   fs.stat(file, (err, st) => {
     if (err || st.isDirectory()) {
+      if (path.extname(pathname) && !st) return send(res, 404, { error: '文件不存在' });
       file = path.join(ROOT, 'index.html');
     }
     fs.readFile(file, (e2, buf) => {

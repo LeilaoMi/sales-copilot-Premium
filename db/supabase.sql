@@ -457,6 +457,13 @@ grant execute on function my_invite_code() to authenticated;
 grant execute on function join_team(text) to authenticated;
 grant execute on function leave_team() to authenticated;
 
+-- ---------- 表权限（审计 M26） ----------
+-- 2026-05-30 起新建的 Supabase 项目不再给 public 下的新表自动授权，
+-- 不写这几行，按文档新建的项目一登录就是 42501 permission denied。
+-- 只授给 authenticated：哪一行能读写由上面的 RLS 决定；anon 一张业务表都不需要。
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on profiles, teams, records, team_scripts, user_settings to authenticated;
+
 
 -- ---------- updated_at 自动维护 ----------
 -- ---------- records 的服务端守卫（2026-11-04 审计 M4 / M5 / M6）----------

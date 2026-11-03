@@ -1,5 +1,5 @@
 -- ============================================================
--- 2026-11-04 审计 Minor 批（m11、m12、m25）生产迁移。幂等，可重复执行。
+-- 2026-11-04 审计 Minor 批（m11、m12、m25，附 M26 显式授权）生产迁移。幂等，可重复执行。
 -- 内容与 db/supabase.sql、db/keepalive.sql 中对应段落逐字一致（由脚本抽取）。
 --   m12 handle_new_user 加咨询锁，首个用户判定不再竞态；新邀请码 12 位
 --   m12 join_team 输错 10 次锁 15 分钟（join_attempts 表）；输错返回 null（需配合新前端）
@@ -140,6 +140,10 @@ end;
 $$ language plpgsql security definer set search_path = public;
 
 grant execute on function join_team(text) to authenticated;
+
+-- M26：显式表授权（老库已有默认授权，重复执行无副作用）
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on profiles, teams, records, team_scripts, user_settings to authenticated;
 
 -- ---------- 保活表（需要 keepalive_logs 已建；没建过的项目请改为执行 db/keepalive.sql） ----------
 drop policy if exists "anon keepalive" on keepalive_logs;

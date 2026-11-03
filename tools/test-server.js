@@ -262,6 +262,14 @@ function request(port, method, p, body, headers) {
     check('名额没被刷满，真实推送成功', put.status === 200);
     const q = await request(p4, 'GET', '/api/sync?token=real-token-aaaaaaaaaaaa');
     check('?token= 不再被接受', q.status === 401);
+    /* M27 静态白名单 */
+    fs.mkdirSync(path.join(tmp, 'db'), { recursive: true }); fs.writeFileSync(path.join(tmp, 'db/supabase.sql'), '-- secret schema');
+    fs.mkdirSync(path.join(tmp, 'docs'), { recursive: true }); fs.writeFileSync(path.join(tmp, 'docs/DEPLOY.md'), '# doc');
+    check('M27 db/ 不再公网可下载', (await request(p4, 'GET', '/db/supabase.sql')).status === 404);
+    check('M27 docs/ 不再公网可下载', (await request(p4, 'GET', '/docs/DEPLOY.md')).status === 404);
+    check('M27 未知 /api/* 返回 404 而不是首页', (await request(p4, 'GET', '/api/nope')).status === 404);
+    check('M27 前端脚本照常', (await request(p4, 'GET', '/js/core/sync-core.js')).status === 200);
+    check('M27 前端路由回首页', (await request(p4, 'GET', '/some/route')).status === 200);
     c4.kill();
   }
   fs.rmSync(tmp, { recursive: true, force: true });
