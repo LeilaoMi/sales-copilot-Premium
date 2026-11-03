@@ -237,6 +237,7 @@ window.Store = (function () {
   let freshInstall = false;
 
   function load() {
+    gen++;
     let raw = null;
     try { raw = localStorage.getItem(KEY); }
     catch (e) { persistent = false; }          // 隐私模式等：localStorage 整个不可用
@@ -331,7 +332,14 @@ window.Store = (function () {
   /* 自己刚写进去的那份。storage 事件只在「别的」标签页触发，
    * 这里留一份是为了在极少数浏览器自己也收到事件时不白白重载一次。 */
   let lastWritten = null;
+  /* 本地数据代号：每次 load / save 加一。
+   * 审计 m3：缓存以前只看 revision()（全库最大 updatedAt），
+   * 同步拉下一条较旧的记录、或 purge 清掉墓碑时最大值不变，缓存就不失效。
+   * revision() 留给同步判断「合并有没有带来更新」，缓存改看这个。 */
+  let gen = 0;
+  const generation = () => gen;
   function save() {
+    gen++;
     if (saveBlocked) return;
     try {
       const txt = JSON.stringify(state);
@@ -923,7 +931,7 @@ window.Store = (function () {
     KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
     addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, isSafeId, safeRecord, sum, daysLeftInMonth,
-    load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, purge, purgeDemo,
+    load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, generation, purge, purgeDemo,
     shouldSeedDemo, markOnboarded,
     list, get, insert, update, remove, removeCustomer, setStage,
     stats, customerMeta, customerName, dealName,

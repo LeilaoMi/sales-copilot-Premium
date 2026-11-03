@@ -99,7 +99,9 @@ window.Sync = (function () {
     if (!remote) return 0;
     const local = snapshot();
     const merged = merge(local, remote);
-    const before = S.revision();
+    /* 只比最大 updatedAt 不够：拉下一条比本地都旧的新记录，最大值不变（审计 m3） */
+    const sig = () => S.revision() + ':' + S.SYNC_KEYS.map(k => (S.state[k] || []).length).join(',');
+    const before = sig();
     applying = true;
     try {
       S.state.customers = merged.customers;
@@ -122,7 +124,7 @@ window.Sync = (function () {
       }
       S.save();
     } finally { applying = false; }
-    return S.revision() !== before ? 1 : 0;
+    return sig() !== before ? 1 : 0;
   }
 
   /* ---------- 适配器：自建 / 兼容后端 ---------- */

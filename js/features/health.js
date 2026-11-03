@@ -38,10 +38,12 @@ window.Health = (function () {
     cache.key = -1;
   }
 
-  /* ---------- 缓存：以数据版本号为 key ---------- */
+  /* ---------- 缓存：以数据代号 + 版本号为 key ----------
+   * 只看版本号（最大 updatedAt）不够：拉下较旧记录、purge 后它不变（审计 m3）。 */
   const cache = { key: -1, baselines: null, cadence: null, fidx: null };
   function ensureCache() {
-    const k = window.Store.revision();
+    const S = window.Store;
+    const k = (S.generation ? S.generation() : 0) + ':' + S.revision();
     if (k === cache.key && cache.baselines) return;
     cache.key = k;
     cache.baselines = buildBaselines();
