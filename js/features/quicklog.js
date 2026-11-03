@@ -20,7 +20,8 @@ window.QuickLog = (function () {
   /* ---------- 跟进类型关键词 ---------- */
   const TYPE_WORDS = [
     ['电话', ['打电话', '通话', '致电', '电话', '打给', '打了', '通过电话', '拨了']],
-    ['拜访', ['拜访', '上门', '到访', '去了一趟', '去了', '见面', '面谈', '当面', '登门']],
+    /* 「去了」要排除「发过去了」「拿回去了」这类趋向补语（审计 m1：「方案发过去了」被判成拜访） */
+    ['拜访', ['拜访', '上门', '到访', '去了一趟', /(?:^|[^过回出进上下发送拿寄传递])去了/, '见面', '面谈', '当面', '登门']],
     ['会议', ['开会', '会议', '参会', '评审', '汇报', '过会', '碰了个会']],
     ['微信', ['微信', '发消息', '发了条', 'vx', 'VX']],
     ['邮件', ['邮件', '发邮件', '邮箱', '发了封']]
@@ -30,7 +31,28 @@ window.QuickLog = (function () {
    * 只有出现这些词才设置 nextAt。
    * 「他说下周三报价」是对方的时间点，不等于我下次要联系他——
    * 这种语义规则分不清，宁可不设，误设比不设更烦人。 */
-  const NEXT_INTENT = /(下次|下回|回头|再联系|再聊|再跟进|跟进|再约|过几天|过段时间|下次见|改天|后续|到时候)/;
+  /* 审计 m1：裸「跟进」「后续」以前也算意图词，
+   * 「跟进了一下优鲜的报价，客户说下周五给答复」就把客户的时间点设成了我的下次跟进。
+   * 现在「跟进」后面接「了/过」（已经发生）不算，「后续」只在接「再/跟/联系/约」时算。 */
+  const NEXT_INTENT = /(下次|下回|回头|再联系|再聊|再跟进|跟进(?![了过])|再约|过几天|过段时间|下次见|改天|后续(?=[再跟联约])|到时候)/;
+
+  /* 中文数字 → 阿拉伯数字，只处理 1–99（「三天后」「两周后」「十五天内」） */
+  const CN_DIGIT = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  function cnToNum(c) {
+    if (/^\d+$/.test(c)) return Number(c);
+    if (c === '十') return 10;
+    const i = c.indexOf('十');
+    if (i < 0) return c.length === 1 && c in CN_DIGIT ? CN_DIGIT[c] : NaN;
+    const hi = i === 0 ? 1 : CN_DIGIT[c.slice(0, i)];
+    const lo = i === c.length - 1 ? 0 : CN_DIGIT[c.slice(i + 1)];
+    return (hi == null || lo == null) ? NaN : hi * 10 + lo;
+  }
+  function normalizeNums(t) {
+    return t.replace(/([零一二两三四五六七八九十]{1,3})(?=个?(?:天|日|周|星期|礼拜|月)[后内以])/g, function (m0, c) {
+      const n = cnToNum(c);
+      return isNaN(n) ? m0 : String(n);
+    });
+  }
 
   /* 找「下次跟进」的时间。
    * 关键：只在意图词**附近**找，否则会张冠李戴——
@@ -88,7 +110,7 @@ window.QuickLog = (function () {
     const S = window.Store;
     const base = now ? new Date(now) : new Date();
     base.setHours(0, 0, 0, 0);
-    const t = String(text || '').replace(/\s/g, '');
+    const t = normalizeNums(String(text || '').replace(/\s/g, ''));
     if (!t) return '';
 
     if (/今天|今日|当天/.test(t)) return S.fmtDate(base);
@@ -131,12 +153,30 @@ window.QuickLog = (function () {
       return (diff !== null && diff < 0) ? S.addDays(thisMonday, 7 + idx) : d;
     }
 
-    let m = t.match(/(\d+)天[后内]/);
+    /* 「下周再联系」「下个礼拜」没说周几：按下周一算（审计 m1） */
+    if (/下(?:个)?(?:周|星期|礼拜)(?![一二三四五六日天])/.test(t) && !/下下/.test(t)) {
+      const cur = base.getDay();
+      const mondayOff = cur === 0 ? -6 : 1 - cur;
+      return S.addDays(S.fmtDate(base), mondayOff + 7);
+    }
+    /* 月底 / 下月初 / 月初 / 半个月 / 下个月 */
+    if (/下个?月底/.test(t)) return S.fmtDate(new Date(base.getFullYear(), base.getMonth() + 2, 0));
+    if (/月底|月末/.test(t)) return S.fmtDate(new Date(base.getFullYear(), base.getMonth() + 1, 0));
+    if (/月初/.test(t)) return S.fmtDate(new Date(base.getFullYear(), base.getMonth() + 1, 1));
+    if (/半个?月[后内以]?/.test(t)) return S.addDays(S.fmtDate(base), 15);
+
+    let m = t.match(/(\d+)[天日][后内以]/);
     if (m) return S.addDays(S.fmtDate(base), Number(m[1]));
-    m = t.match(/(\d+)个?周[后内]/);
+    m = t.match(/(\d+)个?(?:周|星期|礼拜)[后内以]/);
     if (m) return S.addDays(S.fmtDate(base), Number(m[1]) * 7);
-    m = t.match(/(\d+)个?月[后内]/);
-    if (m) { const d = new Date(base); d.setMonth(d.getMonth() + Number(m[1])); return S.fmtDate(d); }
+    m = t.match(/(\d+)个?月[后内以]/);
+    if (!m && /下个月/.test(t)) m = [null, '1'];
+    if (m) {
+      /* 1 月 31 日 +1 个月不能滚到 3 月 3 日，夹到目标月最后一天 */
+      const n = Number(m[1]);
+      const last = new Date(base.getFullYear(), base.getMonth() + n + 1, 0).getDate();
+      return S.fmtDate(new Date(base.getFullYear(), base.getMonth() + n, Math.min(base.getDate(), last)));
+    }
 
     m = t.match(/(\d{1,2})月(\d{1,2})[日号]/);
     if (m) {
@@ -165,6 +205,19 @@ window.QuickLog = (function () {
     if (c.length >= 2 && COMPOUND_SURNAMES.indexOf(c.slice(0, 2)) >= 0) return c.slice(0, 2);
     return c.slice(0, 1);
   }
+  const REGIONS = ('北京 上海 天津 重庆 河北 山西 辽宁 吉林 黑龙江 江苏 浙江 安徽 福建 江西 山东 河南 湖北 湖南 广东 海南 四川 贵州 云南 陕西 甘肃 青海 台湾 内蒙古 广西 西藏 宁夏 新疆 香港 澳门 ' +
+    '广州 深圳 杭州 南京 苏州 无锡 宁波 温州 成都 武汉 西安 长沙 郑州 济南 青岛 厦门 福州 合肥 沈阳 大连 哈尔滨 长春 昆明 贵阳 南宁 南昌 太原 石家庄 兰州 乌鲁木齐 呼和浩特 佛山 东莞 珠海 中山 常州 嘉兴 绍兴 金华 台州 烟台 潍坊 徐州 ' +
+    '中国 全国 国际').split(' ');
+  function regionPrefix(name) {
+    let best = '';
+    REGIONS.forEach(r => {
+      if (name.indexOf(r) === 0 && r.length > best.length) best = r;
+    });
+    if (!best) return '';
+    // 「上海市」「广东省」连同行政后缀一起算
+    const rest = name.slice(best.length);
+    return /^[省市区县]/.test(rest) ? best + rest[0] : best;
+  }
   function matchCustomer(text) {
     const S = window.Store;
     const t = String(text || '');
@@ -184,11 +237,25 @@ window.QuickLog = (function () {
     if (best) return { customer: best, via: 'full', matched: true };
 
     // 第二轮：简称，从 4 字递减到 2 字
+    /* 审计 m1：公司名开头的地名不算简称。「今天去了趟上海」曾命中「上海华通物流」。
+     * 名字以地名开头时，前缀必须比地名长（「上海华通」），或者用去掉地名后的部分（「华通」）。 */
+    const shortsOf = (name, len) => {
+      const n = String(name || '');
+      const r = regionPrefix(n);
+      const out = [];
+      const s = n.slice(0, len);
+      if (s.length === len && s.length > r.length) out.push(s);
+      if (r) {
+        const core = n.slice(r.length).slice(0, len);
+        if (core.length === len && regionPrefix(core) === '') out.push(core);
+      }
+      return out;
+    };
     for (let len = 4; len >= 2; len--) {
       const hits = [];
       list.forEach(c => {
-        const s = (c.name || '').slice(0, len);
-        if (s.length === len && t.includes(s)) hits.push({ c: c, s: s });
+        const s = shortsOf(c.name, len).find(x => t.includes(x));
+        if (s) hits.push({ c: c, s: s });
       });
       // 同一长度多个命中 = 有歧义（"恒力" 可能指两家公司），交给用户选
       if (hits.length === 1) return { customer: hits[0].c, via: 'short', matched: true };
@@ -213,10 +280,8 @@ window.QuickLog = (function () {
       const uniqList = Object.keys(uniq).map(k => uniq[k]);
       // 同姓多人时，若文本同时出现某家公司简称，就定到那家（「恒力王总」→ 恒力那家）
       const refined = uniqList.filter(c => {
-        const nm = c.name || '';
         for (let L = 4; L >= 2; L--) {
-          const s = nm.slice(0, L);
-          if (s.length === L && t.indexOf(s) >= 0) return true;
+          if (shortsOf(c.name, L).some(s => t.indexOf(s) >= 0)) return true;
         }
         return false;
       });
@@ -243,7 +308,7 @@ window.QuickLog = (function () {
     /* 类型：取第一个命中的关键词（按数组顺序，电话>拜访>会议>微信>邮件） */
     for (let i = 0; i < TYPE_WORDS.length; i++) {
       const [name, words] = TYPE_WORDS[i];
-      if (words.some(w => raw.includes(w))) { out.type = name; break; }
+      if (words.some(w => (w instanceof RegExp ? w.test(raw) : raw.includes(w)))) { out.type = name; break; }
     }
 
     /* 客户 */
