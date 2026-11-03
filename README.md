@@ -361,12 +361,17 @@ sales-copilot-Premium/
 ## 10. 本地开发
 
 ```bash
-# 1. 全量语法检查（当前 22 个 JS 文件）
-for f in js/*/*.js server/*.js tools/*.js sw.js; do node --check "$f"; done
+# 1. 全量语法检查
+git ls-files '*.js' | while read -r f; do node --check "$f"; done
 
-# 2. 回归测试：17 项断言，覆盖 buildPrompt 双态 / advise 签名 /
-#    parseSession / digest 桶对齐 / 军火库联合检索
-node tools/test.js
+# 2. 回归测试（推送和 PR 时 GitHub Actions 的 ci.yml 会自动跑同一套）
+node tools/test.js            # AI 提示词 / 复盘 / 周报 / 军火库检索
+node tools/test-server.js     # 自建同步服务：畸形请求、UTF-8 分包、413、CSP、写盘失败
+node tools/test-xss.js        # 页面渲染不被记录内容注入
+node tools/test-sync.js       # 快照同步：空间名、请求头、凭据不上云
+node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
+node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
+(cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
 
 # 3. 构建两个产物，并起本地服务
 node tools/build.js
@@ -387,7 +392,7 @@ PORT=8080 node server/server.js
 | 改同步协议 | 服务端与 EdgeOne 共用一份协议层 `js/core/sync-core.js`（合并算法、令牌校验、空间映射）：改完到 `deploy/edgeone/` 跑 `node prepare.js` 同步适配器，`--check` 可在 CI 里校验一致性。浏览器侧的合并与四种模式在 `js/core/sync.js`，**两侧语义必须保持一致**，否则同一份数据在设备上和服务端上会算出不同结果 |
 | 改缓存 | `deploy/_headers` 或 `vercel.json`，**别手改 `sw.js` 的 FILES**（构建会重写） |
 
-提交前：`node tools/test.js` 全绿，改功能同步改这份 README 和 `docs/DEPLOY.md`。
+提交前：上面的测试全绿（CI 会再跑一遍），改功能同步改这份 README 和 `docs/DEPLOY.md`。
 
 ---
 

@@ -1,0 +1,65 @@
+# 回归测试（2026-11-04 审计 M19）。
+# 以前仓库只有保活任务，没有任何测试在推送时跑；审计里 C2/C3/M5/M6 这类问题都是测试能拦住的。
+# 每次推送和 PR 都跑：语法检查 → 单元 / 服务端 / XSS / 同步 / 存储测试 → 构建 → EdgeOne 副本一致性 → 数据库权限（RLS）。
+# 不需要任何密钥，也不连线上 Supabase：RLS 用 PGlite 在内存里起一个真 Postgres。
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 语法检查（所有 .js）
+        run: |
+          git ls-files '*.js' | while read -r f; do node --check "$f" || { echo "语法错误: $f"; exit 1; }; done
+
+      - name: 单元测试
+        run: node tools/test.js
+
+      - name: 服务端测试（畸形 URL、UTF-8 分包、坏快照、413、CSP、写盘失败）
+        run: node tools/test-server.js
+
+      - name: XSS 测试
+        run: node tools/test-xss.js
+
+      - name: 快照同步测试
+        run: node tools/test-sync.js
+
+      - name: 账号同步测试
+        run: node tools/test-cloud-sync.js
+
+      - name: 本地存储与登录态测试
+        run: node tools/test-storage.js
+
+      - name: 构建（单文件版 + Pages）
+        run: |
+          node tools/build.js
+          node tools/build.js --pages
+
+      - name: EdgeOne 副本与源文件一致
+        run: node deploy/edgeone/prepare.js --check
+
+      - name: 数据库权限（RLS）回归
+        working-directory: tools/rls
+        run: |
+          npm install --no-audit --no-fund
+          npm test
