@@ -43,6 +43,14 @@ const MAX_SPACES = Number(process.env.MAX_SPACES || 200);    // 空间数上限�
  *        注意：令牌就是唯一的钥匙，请让每个人用足够长且不易猜的字符串。
  */
 const FIXED_TOKEN = process.env.SYNC_TOKEN || '';
+/* 固定令牌把关（2026-11-04 审计 M16）：systemd / Docker 模板里带着示例令牌，
+ * 忘改就等于把数据交给所有读过 README 的人。太短或像占位符就拒绝启动，比带病上线强。 */
+const PLACEHOLDER_RE = /change-?me|your-?token|你的|你自己|示例|example|placeholder/i;
+if (FIXED_TOKEN && (FIXED_TOKEN.length < 16 || PLACEHOLDER_RE.test(FIXED_TOKEN))) {
+  console.error('SYNC_TOKEN 不安全：' + (FIXED_TOKEN.length < 16 ? '少于 16 位' : '还是模板里的占位符') +
+    '。请换成随机长串（例：openssl rand -hex 16），或去掉 SYNC_TOKEN 改用多人模式。');
+  process.exit(1);
+}
 let SUGGESTED = '';
 let writable = true;
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { writable = false; }
@@ -56,7 +64,7 @@ console.log('============================================');
 console.log('  销冠助手同步服务已启动');
 console.log('  端口:   ' + PORT);
 console.log('  模式:   ' + MODE);
-if (FIXED_TOKEN) console.log('  令牌:   ' + FIXED_TOKEN);
+if (FIXED_TOKEN) console.log('  令牌:   已设置（' + FIXED_TOKEN.length + ' 位，不在日志里显示）');
 else console.log('  令牌:   自定义，≥8 位即可（建议用：' + SUGGESTED + '）');
 console.log('  存储:   ' + (writable ? DATA_DIR + '（按令牌分文件）' : '内存（目录不可写，重启即丢）'));
 console.log('  备份:   ' + (writable ? '每次覆盖前自动留档，保留最近 ' + BACKUP_KEEP + ' 份（BACKUP_KEEP 可调）' : '不可用'));
@@ -181,8 +189,11 @@ function send(res, code, obj, headers) {
   res.writeHead(code, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,PUT,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization'
+    /* 与 EdgeOne 适配器一致（审计 M13）：前端每次同步都带 X-Sync-Token / X-Device-Id，
+     * 不放行的话「Pages 前端 + 自建后端」跨域预检必失败。服务端没有 POST 接口，不再声明。 */
+    'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Sync-Token,X-Device-Id',
+    'Access-Control-Max-Age': '86400'
   }, headers || {}));
   res.end(body);
 }

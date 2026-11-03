@@ -31,7 +31,7 @@ function request(port, method, p, body, headers) {
     const req = http.request({ host: '127.0.0.1', port: port, method: method, path: p, headers: headers || {}, agent: false }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('error', e => resolve({ status: 0, error: e.message }));
     if (body) {
@@ -94,9 +94,10 @@ function request(port, method, p, body, headers) {
     env: Object.assign({}, process.env, { PORT: String(port), SYNC_TOKEN: token }),
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  let exited = false, stderr = '';
+  let exited = false, stderr = '', stdout = '';
   child.on('exit', () => { exited = true; });
   child.stderr.on('data', c => { stderr += c; });
+  child.stdout.on('data', c => { stdout += c; });
   for (let i = 0; i < 50; i++) {
     const r = await request(port, 'GET', '/api/health');
     if (r.status === 200) break;
@@ -176,10 +177,41 @@ function request(port, method, p, body, headers) {
     const r7 = await request(port, 'PUT', '/api/sync', body2, auth);
     check('磁盘恢复后推送成功并落盘', r7.status === 200 && fs.readFileSync(f2, 'utf8').includes('"pf1"'));
     check('进程仍存活', await alive());
+
+    /* ========== M13 跨域预检放行前端必带的头 ========== */
+    section('M13 CORS');
+    const pre = await request(port, 'OPTIONS', '/api/sync', null, {
+      'Origin': 'https://example.pages.dev', 'Access-Control-Request-Method': 'PUT',
+      'Access-Control-Request-Headers': 'content-type,x-sync-token,x-device-id'
+    });
+    const allowH = String(pre.headers && pre.headers['access-control-allow-headers'] || '').toLowerCase();
+    const allowM = String(pre.headers && pre.headers['access-control-allow-methods'] || '').toUpperCase();
+    check('预检 204', pre.status === 204);
+    check('放行 X-Sync-Token', allowH.includes('x-sync-token'));
+    check('放行 X-Device-Id', allowH.includes('x-device-id'));
+    check('不声明未实现的 POST', !/\bPOST\b/.test(allowM));
+
+    /* ========== M16 固定令牌不进日志 ========== */
+    section('M16 令牌');
+    check('启动日志不打印固定令牌', !stdout.includes(token));
   } finally {
     child.kill();
-    fs.rmSync(tmp, { recursive: true, force: true });
   }
+
+  /* ========== M16 占位符 / 过短令牌拒绝启动 ========== */
+  async function exitCodeWith(tok) {
+    const c = spawn(process.execPath, [path.join(tmp, 'server/server.js')], {
+      env: Object.assign({}, process.env, { PORT: String(port + 1), SYNC_TOKEN: tok }), stdio: 'ignore'
+    });
+    return new Promise(rs => {
+      const t = setTimeout(() => { c.kill(); rs('running'); }, 1500);
+      c.on('exit', code => { clearTimeout(t); rs(code); });
+    });
+  }
+  check('模板占位符令牌拒绝启动', (await exitCodeWith('change-me-to-a-long-random-string')) === 1);
+  check('少于 16 位的令牌拒绝启动', (await exitCodeWith('short-token')) === 1);
+  check('合格令牌正常启动', (await exitCodeWith('9f2c41d7ab03e6c58d1e')) === 'running');
+  fs.rmSync(tmp, { recursive: true, force: true });
 
   if (fail && stderr) console.log('\n--- server stderr ---\n' + stderr);
   console.log('\n' + (fail === 0 ? 'ALL SERVER TESTS PASSED' : 'FAILURES: ' + fail));

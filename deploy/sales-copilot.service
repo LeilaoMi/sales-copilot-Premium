@@ -7,7 +7,7 @@
 #      （下面 ProtectSystem=strict 只放开这一个目录；不建好属主，
 #        服务写不进磁盘会静默退化成内存存储，重启就丢数据 —— 务必先建）
 #   3. 复制本文件到 /etc/systemd/system/sales-copilot.service
-#   4. 修改下面的 SYNC_TOKEN（不设就是多人模式）
+#   4. 按需设置下面的 SYNC_TOKEN（不设就是多人模式）
 #   5. 执行：
 #        sudo systemctl daemon-reload
 #        sudo systemctl enable --now sales-copilot
@@ -25,9 +25,10 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/sales-copilot
 Environment=PORT=8080
-# 专属模式：只认这一个令牌（推荐个人自用）
-Environment=SYNC_TOKEN=change-me-to-a-long-random-string
-# 多人模式：把上面那行注释掉即可，任意 >=8 位令牌各自独立存一份
+# 专属模式：只认这一个令牌（推荐个人自用）。去掉下一行的 # 并填入随机长串
+#   生成：openssl rand -hex 16    ；少于 16 位或仍是占位符时服务会拒绝启动
+#Environment=SYNC_TOKEN=
+# 多人模式：保持上面那行注释即可，任意 >=8 位令牌各自独立存一份
 
 ExecStart=/usr/bin/node server/server.js
 Restart=always
