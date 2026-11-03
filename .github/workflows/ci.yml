@@ -53,6 +53,9 @@ jobs:
       - name: 时区测试（洛杉矶 / 上海 / 基里巴斯）
         run: node tools/test-tz.js
 
+      - name: Service Worker 与通知测试
+        run: node tools/test-sw.js
+
       - name: 构建（单文件版 + Pages）
         run: |
           node tools/build.js

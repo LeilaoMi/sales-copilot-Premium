@@ -222,7 +222,7 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 ### 5.8 跟进提醒
 
-系统桌面通知只看两件事：已逾期，以及 48 小时内到期。每 30 分钟检查一次，一天最多提醒一轮（按客户 + 到期日去重），正文列前 3 家加「等 N 家」，点击直接跳到客户库。不给通知权限或环境不支持时，退化成页面上的红色角标计数。需 HTTPS。
+系统桌面通知只看两件事：已逾期，以及 48 小时内到期。每 30 分钟检查一次，一天最多提醒一轮（按客户 + 到期日去重），正文列前 3 家加「等 N 家」，点击直接跳到客户库。不给通知权限或环境不支持时，退化成页面上的红色角标计数。需 HTTPS。安卓 Chrome 经 Service Worker 弹出通知；提醒靠页面里的定时检查，**页面（或已安装的 PWA）需要开着**，关掉后不会推送。
 
 ### 5.9 换机与备份
 
@@ -372,6 +372,7 @@ node tools/test-sync.js       # 快照同步：空间名、请求头、凭据不
 node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
 node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
 node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本地算
+node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
 (cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
 
 # 3. 构建两个产物，并起本地服务

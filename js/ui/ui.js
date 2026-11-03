@@ -2112,7 +2112,13 @@
     // 注册 Service Worker，支持 PWA 离线使用
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(e => console.log('SW 注册失败（file:// 环境属于正常）:', e));
+      /* 点了 SW 弹出的跟进提醒（notify.js / sw.js）→ 跳到客户库 */
+      navigator.serviceWorker.addEventListener('message', ev => {
+        const d = ev.data || {};
+        if (d.type === 'sc-go' && d.view === 'customers') switchView('customers');
+      });
     }
+    window.addEventListener('sc-go', ev => { if (ev.detail === 'customers') switchView('customers'); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
