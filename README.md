@@ -234,7 +234,7 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 |---|---|---|---|
 | `off` | 关闭（仅存本机） | — | 一台设备，或先试试 |
 | `http` | 自建 / 兼容服务器 | 整包快照 | 自己跑 `server/server.js`，或任何提供 `GET`/`PUT` 快照的接口 |
-| `supabase` | Supabase 空间 | 整包快照 | 一个人多台设备，共用一张 `sales_sync` 表，靠「空间名」隔离 |
+| `supabase` | Supabase 空间 | 整包快照 | 一个人多台设备，共用一张 `sales_sync` 表，靠「空间名」隔离（空间名 ≥16 位，相当于密码；整包不含 AI/搜索 Key） |
 | `cloud` | Supabase 账号 | **逐条记录 + RLS** | 多人 / 团队，数据按账号隔离，管理员能看全队进度 |
 
 规则：本地优先，先写 localStorage 再上云；逐条按 `updatedAt` 最后修改者赢，删除走墓碑标记，所以换设备也能同步「已删掉」。本地改动 4 秒后自动推送，每 60 秒拉一次云端（标签页在后台时不拉），断网重连立刻补一次。`settings.sync` 这段配置永远以本机为准，远端推不动它。
@@ -337,7 +337,7 @@ sales-copilot-Premium/
 | 商机健康度 | `health.enabled / sensitivity / snoozeDays` | 开 / 1 / 7 天 | 灵敏度 UI 三档 0.7–1.5，代码支持 0.4–2.5 |
 | 云同步 | `sync.mode` | `off` | `off` / `http` / `supabase` / `cloud` |
 | | `sync.endpoint / token` | 空 | 自建后端地址与令牌 |
-| | `sync.url / key / table / space` | 表 `sales_sync`，空间 `default` | 整包快照模式参数；多人靠不同 `space` 隔离 |
+| | `sync.url / key / table / space` | 表 `sales_sync`，空间需自填 | 整包快照模式参数；`space` 至少 16 位，设置里可「随机生成」，多人靠不同 `space` 隔离 |
 | 账号与团队 | `cloud.url / key` | 出厂内置 | 换成你自己的 Supabase 项目；清空即回到内置默认 |
 | 跟进提醒 | `notify.enabled` | 开 | 关掉后只保留页面角标 |
 | 数据管理 | 导出 / 导入 / CSV / 数据码 / 示例 / 清空 | — | 配置与数据分开：清空、重置不会动设置 |

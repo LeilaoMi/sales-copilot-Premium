@@ -446,7 +446,14 @@ create trigger user_settings_touch before insert or update on user_settings
 --
 --    sync.js 的 supabaseAdapter 读写这张表：一行 = 一个「空间」（id = 空间名）。
 --    注意与上面的 records 体系无关：多人协作请用「Supabase 账号」模式（records），
---    快照模式的隔离只有「空间名」，知道 URL + anon key + 空间名的人都能读写。
+--    快照模式的隔离只有「空间名」，空间名就是密码。
+--
+--    2026-11-04 审计 M1：原策略是 using (true)，拿到公开 anon key 的人
+--    select=* 就能列出所有空间并读写删整包，根本不需要知道空间名。现在改为：
+--      · 每个请求必须带 x-sync-space 请求头，只能看到/写入 id 等于它的那一行，
+--        不带头的 select=* 一行也拿不到，无法枚举；
+--      · 空间名至少 16 位，'default' 这类能猜的名字不再被接受；
+--      · 前端推送前会剔除 AI / Tavily Key 和同步配置，整包里不再带凭据。
 -- ============================================================
 create table if not exists sales_sync (
   id         text primary key,             -- 空间名，默认 'default'
@@ -456,11 +463,26 @@ create table if not exists sales_sync (
 
 alter table sales_sync enable row level security;
 
+-- PostgREST 把请求头放进 request.headers（JSON，头名小写）。
+-- 不是经 PostgREST 来的连接（SQL Editor、psql）这里返回 null，策略自然不放行。
+create or replace function sales_sync_space()
+returns text
+language sql
+stable
+as $$
+  select nullif(current_setting('request.headers', true), '')::json ->> 'x-sync-space'
+$$;
+
 drop policy if exists "sales_sync_anon_all" on sales_sync;
-create policy "sales_sync_anon_all" on sales_sync
+drop policy if exists "sales_sync_by_space" on sales_sync;
+create policy "sales_sync_by_space" on sales_sync
   for all to anon, authenticated
-  using (true)
-  with check (true);
+  using (id = sales_sync_space() and length(id) >= 16)
+  with check (id = sales_sync_space() and length(id) >= 16);
+-- 显式授权：2026-10-30 之后新建的 Supabase 项目不再默认给 anon/authenticated 授权，
+-- 不写这两行快照模式在新库上直接 401/403。行级隔离仍由上面的策略负责。
+grant execute on function sales_sync_space() to anon, authenticated;
+grant select, insert, update, delete on sales_sync to anon, authenticated;
 
 drop trigger if exists sales_sync_touch on sales_sync;
 create trigger sales_sync_touch before insert or update on sales_sync

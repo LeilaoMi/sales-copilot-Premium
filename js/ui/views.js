@@ -1365,9 +1365,10 @@ window.Views = (function () {
           <div class="field"><label>表名</label>
             <input id="sb-table" value="${E(sy.table || 'sales_sync')}" placeholder="sales_sync"></div>
           <div class="field"><label>空间名</label>
-            <input id="sb-space" value="${E(sy.space || 'default')}" placeholder="default"></div>
+            <input id="sb-space" value="${E(sy.space || '')}" placeholder="至少 16 位" autocomplete="off">
+            <button type="button" class="btn btn-sm" data-action="sb-space-gen" style="margin-top:4px">随机生成</button></div>
         </div>
-        <div class="hint">建表 SQL 见 README。<b>空间名相同的设备之间互相同步</b>；想让多个账号各自独立，填不同的空间名即可。</div>
+        <div class="hint">建表 SQL 见 README。<b>空间名相同的设备之间互相同步</b>，它就是这份数据的密码：至少 16 位，别用 default 这类能猜到的名字，其他设备照抄同一个即可。AI / 搜索的 Key 不会上传到这张表。</div>
       </div>
 
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">

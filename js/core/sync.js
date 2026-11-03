@@ -111,7 +111,14 @@ window.Sync = (function () {
       const rs = remote.settings || {};
       const ls = S.state.settings || {};
       if ((Number(rs.updatedAt) || 0) > (Number(ls.updatedAt) || 0)) {
-        S.state.settings = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+        const next = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+        /* 快照模式推送前会剔除凭据（审计 M1），云端包里的 key 是空的；
+         * 采纳云端设置时本机已有的 key 要保留，不能被空值冲掉。 */
+        ['ai', 'tavily'].forEach(k => {
+          const l = ls[k], r = next[k];
+          if (l && l.key && (!r || !r.key)) next[k] = Object.assign({}, r, { key: l.key });
+        });
+        S.state.settings = next;
       }
       S.save();
     } finally { applying = false; }
@@ -156,17 +163,37 @@ window.Sync = (function () {
     }
   };
 
-  /* ---------- 适配器：Supabase（Postgres + REST） ---------- */
+  /* ---------- 适配器：Supabase（Postgres + REST） ----------
+   * 2026-11-04 审计 M1：sales_sync 的 RLS 改为只放行 id 等于 x-sync-space
+   * 请求头、且长度 ≥ 16 的那一行。空间名就是这份数据的密码，所以：
+   *   · 每个请求都带 x-sync-space；
+   *   · 空间名过短直接报错，不发请求；
+   *   · 推送的整包剔除 AI/Tavily Key 和同步配置——表里只该有业务数据。 */
+  const MIN_SPACE = 16;
+  function spaceOf(c) {
+    const sp = String(c.space || '');
+    if (sp.length < MIN_SPACE) throw new Error('空间名至少 ' + MIN_SPACE + ' 位（它就是这份数据的密码），请在设置里点「随机生成」');
+    return sp;
+  }
+  function stripSecrets(data) {
+    const st = data.settings;
+    if (!st || typeof st !== 'object') return data;
+    const clean = Object.assign({}, st);
+    delete clean.sync;
+    ['ai', 'tavily'].forEach(k => { if (clean[k]) clean[k] = Object.assign({}, clean[k], { key: '' }); });
+    return Object.assign({}, data, { settings: clean });
+  }
   const supabaseAdapter = {
     label: 'Supabase',
     rowUrl(c) {
-      return `${(c.url || '').replace(/\/$/, '')}/rest/v1/${c.table || 'sales_sync'}?id=eq.${encodeURIComponent(c.space || 'default')}`;
+      return `${(c.url || '').replace(/\/$/, '')}/rest/v1/${c.table || 'sales_sync'}?id=eq.${encodeURIComponent(spaceOf(c))}`;
     },
     headers(c) {
       return {
         'apikey': c.key || '',
         'Authorization': 'Bearer ' + (c.key || ''),
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-sync-space': spaceOf(c)
       };
     },
     async pull(c) {
@@ -179,7 +206,7 @@ window.Sync = (function () {
       const r = await fetch((c.url || '').replace(/\/$/, '') + '/rest/v1/' + (c.table || 'sales_sync'), {
         method: 'POST',
         headers: Object.assign(this.headers(c), { 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
-        body: JSON.stringify({ id: c.space || 'default', data: data, updated_at: new Date().toISOString() })
+        body: JSON.stringify({ id: spaceOf(c), data: stripSecrets(data), updated_at: new Date().toISOString() })
       });
       if (!r.ok) throw new Error('推送失败 HTTP ' + r.status + '（检查表名/RLS 策略）');
       return null;
@@ -466,7 +493,7 @@ window.Sync = (function () {
   }
 
   return {
-    merge, snapshot, pushPayload, applySnapshot,
+    merge, snapshot, pushPayload, applySnapshot, stripSecrets, MIN_SPACE,
     changedSince, applyRecords, applyCloudSettings, cloudSync,
     sync, start, stop, on, onLocalChange, cfg, saveCfg, getStatus
   };

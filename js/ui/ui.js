@@ -1380,6 +1380,14 @@
       toast(r.ok ? '同步完成' : '同步失败：' + (r.msg || '未知错误'), r.ok ? 'ok' : 'err');
       if (r.ok) render(); else renderSyncStatus();
     },
+    'sb-space-gen': () => {
+      const el = $('#sb-space');
+      if (!el) return;
+      const b = new Uint8Array(12);
+      crypto.getRandomValues(b);
+      el.value = 'sp-' + Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+      toast('已生成，其他设备填同一个空间名即可', 'ok');
+    },
     'save-sync': async () => {
       const mode = $('#sync-mode') ? $('#sync-mode').value : 'off';
       const patch = { mode: mode };
@@ -1391,8 +1399,9 @@
         patch.url = readVal('sb-url');
         patch.key = $('#sb-key') ? $('#sb-key').value.trim() : '';
         patch.table = readVal('sb-table') || 'sales_sync';
-        patch.space = readVal('sb-space') || 'default';
+        patch.space = readVal('sb-space');
         if (!patch.url || !patch.key) { toast('请填写 Project URL 和 anon key', 'err'); return; }
+        if (patch.space.length < Sync.MIN_SPACE) { toast('空间名至少 ' + Sync.MIN_SPACE + ' 位，可点「随机生成」', 'err'); return; }
       }
       Sync.saveCfg(patch);
       if (mode === 'off') {
