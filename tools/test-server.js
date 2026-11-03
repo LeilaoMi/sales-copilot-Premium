@@ -66,6 +66,20 @@ function request(port, method, p, body, headers) {
     catch (e) { return false; }
   })());
 
+  /* M24：settings 按 updatedAt 取新，不再「推送方一律胜出」 */
+  check('M24 陈旧设备推送的旧 settings 不覆盖云端新 settings', (() => {
+    const m = CORE.merge({ settings: { goal: 'new', updatedAt: 200 } }, { settings: { goal: 'old', updatedAt: 100 } });
+    return m.settings && m.settings.goal === 'new';
+  })());
+  check('M24 推送方 settings 更新时正常采纳', (() => {
+    const m = CORE.merge({ settings: { goal: 'old', updatedAt: 100 } }, { settings: { goal: 'new', updatedAt: 200 } });
+    return m.settings && m.settings.goal === 'new';
+  })());
+  check('M24 云端没有 settings 时采纳推送方的', (() => {
+    const m = CORE.merge({}, { settings: { goal: 'x' } });
+    return m.settings && m.settings.goal === 'x';
+  })());
+
   /* ========== 2. 起服务 ========== */
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-server-'));
   fs.mkdirSync(path.join(tmp, 'server'));
@@ -144,6 +158,23 @@ function request(port, method, p, body, headers) {
       req.end(big);
     });
     check('超限返回 413 或被断开，不再挂起', r4 === 413 || r4 === -1);
+    check('进程仍存活', await alive());
+
+    /* ========== 7. 落盘失败不能回 200（审计 M25） ========== */
+    section('落盘失败');
+    /* 服务以专属令牌模式启动，只有一个空间：用它的文件 */
+    const f2 = path.join(tmp, 'data', 'store-' + CORE.spaceKey(token) + '.json');
+    const before = fs.readFileSync(f2, 'utf8');
+    fs.mkdirSync(f2 + '.tmp', { recursive: true });   // 临时文件位置被目录占住 → writeFileSync 必然失败
+    const body2 = JSON.stringify({ data: { customers: [{ id: 'pf1', updatedAt: 1 }] } });
+    const r5 = await request(port, 'PUT', '/api/sync', body2, auth);
+    check('写盘失败返回 5xx（实得 ' + r5.status + '）', r5.status >= 500);
+    const r6 = await request(port, 'GET', '/api/sync', null, auth);
+    check('写盘失败后内存里也不留这次推送', r6.status === 200 && !r6.body.includes('"pf1"'));
+    check('磁盘上的旧文件没被动', fs.readFileSync(f2, 'utf8') === before);
+    fs.rmSync(f2 + '.tmp', { recursive: true, force: true });
+    const r7 = await request(port, 'PUT', '/api/sync', body2, auth);
+    check('磁盘恢复后推送成功并落盘', r7.status === 200 && fs.readFileSync(f2, 'utf8').includes('"pf1"'));
     check('进程仍存活', await alive());
   } finally {
     child.kill();

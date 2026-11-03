@@ -133,14 +133,21 @@ function rotateBackup(h) {
   } catch (e) { console.error('备份失败:', e.message); }
 }
 
+/* 返回 true 表示已落盘（或本来就是内存模式，无盘可落）；false 表示写盘失败。
+ * 以前写失败只打一行日志、照样回 200（2026-11-04 审计 M25）：客户端以为同步成功，
+ * 重启后这段数据就没了。现在调用方据此回 500，并且不把这次推送留在内存里。 */
 function persist(h, sp) {
-  if (!writable) return;
+  if (!writable) return true;
   try {
     rotateBackup(h);                            // 先留后路，再覆盖
     const f = spaceFile(h), tmp = f + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(sp));
     fs.renameSync(tmp, f);   // 原子写，避免写一半断电损坏
-  } catch (e) { console.error('写入失败:', e.message); }
+    return true;
+  } catch (e) {
+    console.error('写入失败:', e.message);
+    return false;
+  }
 }
 
 /* ---------- 合并：逐条 LWW + 墓碑 ---------- */
@@ -310,9 +317,13 @@ const server = http.createServer((req, res) => {
         const bad = validate(incoming);
         if (bad) return send(res, 400, { error: '数据格式不对：' + bad });
         const merged = merge(store.data || {}, incoming);
+        const revision = calcRevision(merged);
+        /* 先落盘、成功了才更新内存：写失败时内存和磁盘保持一致，客户端拿到 500 会重试 */
+        if (!persist(h, Object.assign({}, store, { data: merged, revision: revision }))) {
+          return send(res, 500, { error: '服务端写盘失败，本次推送未保存，请稍后重试' });
+        }
         store.data = merged;
-        store.revision = calcRevision(merged);
-        persist(h, store);
+        store.revision = revision;
         console.log('[' + h + '] 收到推送，revision=' + store.revision +
           ' 客户=' + (merged.customers || []).filter(x => !x.deleted).length +
           ' 商机=' + (merged.deals || []).filter(x => !x.deleted).length +

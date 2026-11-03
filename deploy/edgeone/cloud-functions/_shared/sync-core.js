@@ -114,9 +114,16 @@
     const ra = (a && a.savedAt) || 0, rb = (b && b.savedAt) || 0;
     out.savedAt = Math.max(ra, rb);
     out.v = 1;
-    /* settings / deviceId 不是列表，没法按 id 合并，取新的那份 */
-    if (b && b.settings) out.settings = b.settings;
-    else if (a && a.settings) out.settings = a.settings;
+    /* settings 不是列表，没法按 id 合并，整份按 settings.updatedAt 取新的（2026-11-04 审计 M24）。
+     * 以前推送方一律胜出：一台很久没开的设备一推，云端新改的目标、AI 配置就被回退。
+     * 相等时取推送方，与记录合并的 >= 保持一致。 */
+    const sa = a && a.settings, sb = b && b.settings;
+    if (sa && sb) {
+      out.settings = (Number(sb.updatedAt) || 0) >= (Number(sa.updatedAt) || 0) ? sb : sa;
+    } else if (sb || sa) {
+      out.settings = sb || sa;
+    }
+    /* deviceId 只是标识，取推送方的 */
     if (b && b.deviceId) out.deviceId = b.deviceId;
     else if (a && a.deviceId) out.deviceId = a.deviceId;
     return out;
