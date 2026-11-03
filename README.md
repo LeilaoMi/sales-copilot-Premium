@@ -354,7 +354,7 @@ sales-copilot-Premium/
 | `BACKUP_MIN_GAP` | 60000 | 两次近期快照的最小间隔（毫秒），防被刷 |
 | `MAX_SPACES` | 200 | 空间数上限，超出返回 503（公开部署的护栏） |
 
-单次 `PUT` 请求体上限 8 MB；无频率限制，只有上面的空间数护栏。EdgeOne 适配器另有 `BLOB_STORE`（默认 `sales-copilot`）、`SYNC_TOKEN`、`MAX_DEVICES`（默认 20）。
+单次 `PUT` 请求体上限 8 MB；无频率限制，只有上面的空间数护栏。EdgeOne 适配器另有 `BLOB_STORE`（默认 `sales-copilot`）、`SYNC_TOKEN`、`MAX_DEVICES`（默认 20，满了无损收拢最旧设备）、`MAX_SPACES`（默认 200）。
 
 ---
 
@@ -373,6 +373,7 @@ node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
 node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
 node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本地算
 node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
+node tools/test-edgeone.mjs   # EdgeOne 适配器：设备满了无损收拢、空间数上限
 (cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
 
 # 3. 构建两个产物，并起本地服务

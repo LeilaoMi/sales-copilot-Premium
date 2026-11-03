@@ -56,6 +56,9 @@ jobs:
       - name: Service Worker 与通知测试
         run: node tools/test-sw.js
 
+      - name: EdgeOne 适配器测试
+        run: node tools/test-edgeone.mjs
+
       - name: 构建（单文件版 + Pages）
         run: |
           node tools/build.js

@@ -249,7 +249,7 @@ npx wrangler pages deploy public
 2. `node prepare.js` —— **每次升级都要跑**，理由见下
 3. `npm install`（全仓库唯一有 npm 依赖的地方：`@edgeone/pages-blob`，需 Node ≥ 18）
 4. 推到 Git → EdgeOne 控制台建 Pages 项目：框架选「其他 / 无」，安装命令 `npm install`，构建命令留空
-5. 函数环境变量：`BLOB_STORE`（存储桶名，默认 `sales-copilot`）、`SYNC_TOKEN`（留空 = 多人模式，令牌即空间）、`MAX_DEVICES`（默认 20，超了返回 413）。改完要重新部署一次才生效
+5. 函数环境变量：`BLOB_STORE`（存储桶名，默认 `sales-copilot`）、`SYNC_TOKEN`（留空 = 多人模式，令牌即空间）、`MAX_DEVICES`（默认 20，满了把最旧设备无损收拢）、`MAX_SPACES`（默认 200，多人模式新空间超出返回 503）。改完要重新部署一次才生效
 6. 验：浏览器开 `https://你的域名/api/health`，看到 `"ok":true` 且 `blobReady` 为真
 7. 回应用「设置 → 云同步」，同步方式选 **自建 / 兼容服务器**，地址填 `https://你的域名/api/sync`
 
