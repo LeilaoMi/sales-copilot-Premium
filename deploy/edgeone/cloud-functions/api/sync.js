@@ -130,6 +130,9 @@ export async function onRequest(context) {
     }
     const incoming = body && body.data;
     if (!incoming || typeof incoming !== 'object') return json({ error: '缺少 data' }, 400);
+    // 结构校验（2026-11-04 审计 C4）：坏结构直接 400，不写进 Blob
+    const bad = CORE.validate(incoming);
+    if (bad) return json({ error: '数据格式不对：' + bad }, 400);
 
     const raw = JSON.stringify(incoming);
     if (raw.length > MAX_BODY) return json({ error: '数据过大（上限 8MB）' }, 413);

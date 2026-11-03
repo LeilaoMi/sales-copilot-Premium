@@ -146,6 +146,7 @@ function persist(h, sp) {
 /* ---------- 合并：逐条 LWW + 墓碑 ---------- */
 const merge = CORE.merge;
 const calcRevision = CORE.calcRevision;
+const validate = CORE.validate;
 
 /* ---------- HTTP ---------- */
 const MIME = {
@@ -202,8 +203,15 @@ function isPrivatePath(pathname) {
 }
 
 const server = http.createServer((req, res) => {
-  const u = new URL(req.url, 'http://x');
-  const pathname = decodeURIComponent(u.pathname);
+  /* 畸形百分号编码（如 /%E0%A4%A）会让 decodeURIComponent 抛 URIError。
+   * 以前没接住，未鉴权的一个 GET 就能把整个进程打挂（2026-11-04 审计 C2）。 */
+  let u, pathname;
+  try {
+    u = new URL(req.url, 'http://x');
+    pathname = decodeURIComponent(u.pathname);
+  } catch (e) {
+    return send(res, 400, { error: '请求路径编码不合法' });
+  }
 
   if (req.method === 'OPTIONS') return send(res, 204, '');
 
@@ -261,16 +269,33 @@ const server = http.createServer((req, res) => {
       return send(res, 200, { revision: store.revision, data: store.data });
     }
     if (req.method === 'PUT') {
-      let body = '';
+      /* 先收原始字节、最后整体按 UTF-8 解码（2026-11-04 审计 C3）。
+       * 以前 body += chunk 是逐块转字符串，一个汉字的 3 个字节被网络分包切开时
+       * 两半各自解码成 U+FFFD，坏数据落盘后再经 LWW 同步到所有设备。 */
+      const MAX = 8 * 1024 * 1024;   // 8MB 上限，按字节算
+      const chunks = [];
+      let size = 0, tooBig = false;
       req.on('data', c => {
-        body += c;
-        if (body.length > 8 * 1024 * 1024) { req.destroy(); }   // 8MB 上限
+        if (tooBig) return;
+        size += c.length;
+        if (size > MAX) {
+          tooBig = true;
+          chunks.length = 0;
+          // 先回 413 再断开，客户端能拿到明确错误，而不是一直挂着
+          send(res, 413, { error: '数据超过 8MB 上限' });
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
       });
       req.on('end', () => {
+        if (tooBig) return;
         let incoming;
-        try { incoming = JSON.parse(body).data; }
+        try { incoming = JSON.parse(Buffer.concat(chunks, size).toString('utf8')).data; }
         catch (e) { return send(res, 400, { error: 'JSON 解析失败' }); }
-        if (!incoming || typeof incoming !== 'object') return send(res, 400, { error: '缺少 data' });
+        // 结构不对直接 400，不让它进 merge（审计 C4：以前会抛错打挂进程）
+        const bad = validate(incoming);
+        if (bad) return send(res, 400, { error: '数据格式不对：' + bad });
         const merged = merge(store.data || {}, incoming);
         store.data = merged;
         store.revision = calcRevision(merged);
