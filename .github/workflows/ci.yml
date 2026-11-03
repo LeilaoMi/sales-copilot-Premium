@@ -56,6 +56,9 @@ jobs:
       - name: 一句话录入测试
         run: node tools/test-quicklog.js
 
+      - name: 会话情报（规则版）测试
+        run: node tools/test-digest.js
+
       - name: Service Worker 与通知测试
         run: node tools/test-sw.js
 

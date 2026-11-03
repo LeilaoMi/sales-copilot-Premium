@@ -374,6 +374,7 @@ node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
 node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
 node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本地算
 node tools/test-quicklog.js   # 一句话录入：跟进方式、中文数字、意图词、客户匹配、月底/下周
+node tools/test-digest.js     # 会话情报：等客户反馈、字段标签、签字误报、日期不算数量
 node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
 node tools/test-edgeone.mjs   # EdgeOne 适配器：设备满了无损收拢、空间数上限
 (cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
