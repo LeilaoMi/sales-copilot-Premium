@@ -65,7 +65,7 @@
 | 话术库 | 48 条内置 + 78 条军火库 | 内置 9 大类语义检索；一键加载「实战军火库」15 类知识型条目，看中哪条存入自己的话术库；赢单输单当场沉淀 |
 | 周报 | 自动归拢一段时间动作 | 本周 / 上周 / 近 7 天 / 本月 / 上月 / 近 30 天六个口径，四段式文本可直接复制发出 |
 | AI 助手 | 可选增强 | 6 个场景：跟进纪要、周报润色、输单复盘、作战建议、客户作战简报、话术军火。需配 Key，不配不影响其他功能 |
-| 团队看板 | 只管理员可见 | 全队 in-flight 金额 / 商机数 / 本月赢单 / 逾期 / 沉默天数，按人汇总，不显示客户具体名字 |
+| 团队看板 | 只管理员可见 | 全队 in-flight 金额 / 商机数 / 本月赢单 / 逾期 / 沉默天数，按人汇总。看板只拉阶段、金额、日期这几个统计字段，不拉客户名和电话；但按数据库权限，管理员**有权**读取同队成员的完整记录 |
 | 设置 | 个人 + 系统配置 | 目标、提成、AI、同步、健康度、提醒、导入导出、PWA，详见 [第 9 节](#9-常见配置项) |
 
 **跨模块能力**：顶栏全局搜索（回车跳到客户库并带上关键词）、`+ 记跟进` / `+ 新客户` 快捷按钮、同步胶囊（状态一目了然，点击立即同步）、浏览器桌面通知（到点主动提醒）、PWA 安装到主屏幕、`Esc` 关闭弹窗。
@@ -226,7 +226,7 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 ### 5.9 换机与备份
 
-设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入会覆盖当前数据）、载入示例、清空全部业务数据、压缩数据（清掉本地删除墓碑）。
+设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入以导入内容为准；数据码不含 API Key 和同步凭据，备份 JSON 含）、载入示例、清空全部业务数据、压缩数据（清掉本地删除墓碑）。
 
 ### 5.10 多人、团队与同步
 
@@ -243,7 +243,7 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 **登录门**：Supabase 地址与 key 出厂内置（`auth.js` 的 `DEFAULT_CLOUD`，用的是 publishable key，本来就会随前端 JS 公开）。新设备首次打开自动弹全屏登录页——登录即自动切到 `cloud` 模式并拉取数据，手机电脑同一份；想纯本地用点「先逛逛」，此后不再自动弹（下次登录成功会清掉该标记）。本机残留的示例数据在首次同步后自动清理（`Store.purgeDemo`），不会混进真实数据。
 
-**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 8 位邀请码发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。共享话术走 `team_scripts` 表。六张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`。
+**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 8 位邀请码发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。`team_scripts`（团队共享话术）表已建好，但前端**尚未接入**，目前话术库仍是个人的。六张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`。
 
 ---
 
@@ -267,7 +267,7 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 
 自托管两个模板都已按仓库实际布局写对启动路径（`node server/server.js`）：Docker 在**仓库根**执行 `docker build -t sales-copilot -f deploy/Dockerfile .`（`deploy/_headers` 那份同理，别去改构建产物里的副本）；systemd 照 `deploy/sales-copilot.service` 顶部步骤装，注意 `ProtectSystem=strict` 下要先建好并交出 `data/` 属主，起服务后用 `/api/health` 的 `storage:file` 确认数据真的落盘。
 
-**Supabase 免费项目保活**：`.github/workflows/supabase-keepalive.yml` 每 3 天 ping 一次 `/auth/v1/health`，防止免费项目 7 天不活跃被暂停；检测到休眠会把任务标红提醒去 Dashboard 手动 Restore。注意 GitHub 会在仓库 60 天无提交后自动停用定时任务。
+**Supabase 免费项目保活**：`.github/workflows/supabase-keepalive.yml` 每 3 天往 `keepalive_logs` 表真实写入一行（2026 年起只读 ping 不再稳定计入活跃），防止免费项目 7 天不活跃被暂停；检测到休眠会把任务标红提醒去 Dashboard 手动 Restore。注意 GitHub 会在仓库 60 天无提交后自动停用定时任务。
 
 上线后必做的 6 条验证（SW 是否拿到新代码、清空数据会不会长回来、两账号互相看不见、离线可用、`data/` 未泄露、PWA 安装）逐条写在 **[`docs/DEPLOY.md`](docs/DEPLOY.md)**，其中缓存与排错部分尤其是踩过坑的，别跳过。
 
@@ -280,8 +280,9 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 | 问题 | 答案 |
 |---|---|
 | 数据存哪 | 浏览器 localStorage，键名 `sales_copilot_v1`；开了同步才在云端有一份 |
-| 作者服务器 | 没有。除非你自己部署，否则你的数据不经过任何第三方 |
-| API Key | 只存本机浏览器，直连你填的服务商，不转发不落第三方日志 |
+| 作者服务器 | 登录页默认连的是作者的 Supabase 项目（`js/core/auth.js` 的 `DEFAULT_CLOUD`）：用它登录并开同步，数据就存在作者的项目里。不想这样，在设置里换成你自己的 Supabase，或不登录、只用本机 |
+| API Key | 存本机浏览器，直连你填的服务商；同步时会剔除，不上云；数据码也不带 |
+| AI 与联网情报 | 用到时会把相关客户的名称、备注、跟进内容等发给你配置的 AI 服务商，作战简报还会把公司名发给 Tavily。介意就别开 AI |
 | `data/` | `server/server.js` 的本地快照目录（含令牌与全量客户快照），已 gitignore，永不进库；自托管服务的静态层已把 `/data/*` 一律挡成 403。**跑的是旧版本的话它公网可下载，照 `docs/DEPLOY.md` 5.5 升级并换令牌** |
 | `public/` | 构建产物，已 gitignore，每次构建先清空 |
 | 换浏览器 / 清缓存 | 会没。开同步，或定期导出 JSON / 复制数据码 |

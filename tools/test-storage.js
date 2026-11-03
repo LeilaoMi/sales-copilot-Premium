@@ -140,6 +140,79 @@ const tick = () => new Promise(r => setTimeout(r, 5));
   try { await Auth.api('/rest/v1/records?select=id', { method: 'GET' }); } catch (e) { err = e; }
   check('refresh_token 被拒（400）时才清会话', Auth.isOn() === false && !!err && /过期/.test(err.message));
 
+  /* ========== M21 数据码与导入 ========== */
+  section('M21 数据码不带凭据、导入以导入为准');
+  boot();
+  Store.load();
+  Store.state.settings.ai = { enabled: true, base: 'x', key: 'sk-SECRET-AI', model: 'm' };
+  Store.state.settings.tavily = { key: 'tvly-SECRET' };
+  Store.state.settings.sync = { provider: 'supabase', url: 'u', key: 'k', space: 'SECRET-SPACE-NAME-1234' };
+  Store.state.settings.cloud = { url: 'https://mine.supabase.co', key: 'sb_publishable_mine' };
+  Store.state.customers = [{ id: 'c1', name: '甲', updatedAt: 1000 }];
+  Store.save();
+  const code = Store.exportJSON();
+  check('数据码不含 AI Key', !code.includes('sk-SECRET-AI'));
+  check('数据码不含 Tavily Key', !code.includes('tvly-SECRET'));
+  check('数据码不含同步空间 / 令牌', !code.includes('SECRET-SPACE-NAME-1234'));
+  check('备份 JSON（secrets:true）仍保留凭据', Store.exportJSON({ secrets: true }).includes('sk-SECRET-AI'));
+
+  /* 另一台设备：有自己的设备 ID 和 Key，导入一份旧数据 */
+  const srcDevice = Store.state.deviceId;
+  boot();
+  Store.load();
+  const myDevice = Store.state.deviceId;
+  Store.state.settings.ai = { enabled: true, base: 'x', key: 'sk-MINE', model: 'm' };
+  Store.state.settings.sync = { provider: 'supabase', space: 'MY-OWN-SPACE-NAME-99' };
+  Store.save();
+  const t0 = Date.now();
+  Store.importJSON(code);
+  check('导入后保留本机设备 ID（不复制源设备 ' + srcDevice + '）', Store.state.deviceId === myDevice && myDevice !== srcDevice);
+  check('导入内容没带 Key 时保留本机的 Key', Store.state.settings.ai.key === 'sk-MINE');
+  check('导入内容没带同步配置时保留本机的', !!Store.state.settings.sync && Store.state.settings.sync.space === 'MY-OWN-SPACE-NAME-99');
+  const c1 = Store.state.customers.find(c => c.id === 'c1');
+  check('导入记录的 updatedAt 刷成现在', !!c1 && c1.updatedAt >= t0);
+  /* 云端有一份比导入文件新、但比导入动作旧的版本：合并后应以导入为准 */
+  const CORE = require(path.join(root, 'js/core/sync-core.js'));
+  if (CORE && CORE.merge) {
+    const cloud = { customers: [{ id: 'c1', name: '云端改过', updatedAt: t0 - 5000 }], deals: [], followups: [], scripts: [] };
+    const m = CORE.merge(cloud, Store.state);
+    check('与较新的云端合并后仍以导入为准', m.customers.find(c => c.id === 'c1').name === '甲');
+  } else {
+    check('找到 sync-core 的 merge', false);
+  }
+
+  /* ========== M17 团队看板 ========== */
+  section('M17 团队看板只拉统计字段、分页拉全');
+  const urls = [];
+  const TOTAL = 2600;
+  boot();
+  Store.load();
+  localStorage.setItem('sc.auth.session', JSON.stringify({
+    access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600e3, user_id: 'u1', email: 'a@b.c'
+  }));
+  global.fetch = async (url) => {
+    urls.push(url);
+    let body = [];
+    if (url.includes('/rest/v1/profiles')) body = [{ id: 'u1', team_id: 't1', role: 'owner', display_name: 'A' }];
+    else if (url.includes('/rest/v1/records')) {
+      const q = new URL(url).searchParams;
+      const limit = Number(q.get('limit') || 1e9), offset = Number(q.get('offset') || 0);
+      const all = Array.from({ length: TOTAL }, (_, i) => ({ user_id: 'u1', kind: 'customers', id: 'r' + String(i).padStart(5, '0'),
+        data: { name: '客户' + i, phone: '138' + i }, nextFollowAt: '2026-11-01', stage: null }));
+      body = all.slice(offset, offset + limit).map(r => q.get('select').includes('data,') || /select=[^&]*\bdata\b(?!->)/.test(url) ? r : { user_id: r.user_id, kind: r.kind, id: r.id, nextFollowAt: r.nextFollowAt });
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  (0, eval)(fs.readFileSync(path.join(root, 'js/core/auth.js'), 'utf8'));
+  try { Auth.init && Auth.init(); } catch (e) {}
+  await Auth.loadProfile(true);
+  const rows = await Auth.teamRecords();
+  const recUrls = urls.filter(u => u.includes('/rest/v1/records'));
+  check('拉全 ' + TOTAL + ' 条（实得 ' + rows.length + '）', rows.length === TOTAL);
+  check('请求里不再整份 select data', recUrls.length > 0 && recUrls.every(u => !/select=[^&]*\bdata\b(?!->)/.test(decodeURIComponent(u))));
+  check('拿到的记录不含客户名和电话', rows.length > 0 && !JSON.stringify(rows.slice(0, 5)).includes('138'));
+  check('看板需要的字段还在', rows.length > 0 && rows[0].data && rows[0].data.nextFollowAt === '2026-11-01');
+
   console.log('\n' + (fail === 0 ? 'ALL STORAGE TESTS PASSED' : 'FAILURES: ' + fail));
   process.exit(fail === 0 ? 0 : 1);
 })().catch(e => { console.error('FATAL:', e); process.exit(1); });

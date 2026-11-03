@@ -107,7 +107,7 @@ Supabase 是同步数据的"存放地"。免费版对个人完全够用。
 | `profiles` | 用户与角色（owner / admin / member）、所属团队、显示名 |
 | `teams` | 团队本身与 8 位邀请码 |
 | `records` | 你的客户 / 商机 / 跟进 / 话术，一条记录一行，按 `user_id` 隔离 |
-| `team_scripts` | 团队共享话术 |
+| `team_scripts` | 团队共享话术（表已建，前端尚未接入） |
 | `user_settings` | 你的个人设置（含 AI Key），只有你自己读得到 |
 | `sales_sync` | 整包快照模式（同步方式选「Supabase 空间」时）用的那一张表 |
 
@@ -527,5 +527,5 @@ curl -s -o /dev/null -w "%{http_code}\n" http://IP:8080/data/backups/
 | `deploy/sales-copilot.service` | systemd 守护模板（含 `ProtectSystem=strict` 加固与 data 属主步骤） |
 | `deploy/edgeone/` | 腾讯云 EdgeOne Pages 适配器（云函数提供 `/api/sync` + `/api/health`），自带 README |
 | `db/supabase.sql` | Supabase 6 张表 + RLS 策略 + security definer 函数，幂等可重跑 |
-| `.github/workflows/supabase-keepalive.yml` | 每 3 天 ping 一次免费 Supabase 项目防休眠；检测到暂停会标红提醒 |
+| `.github/workflows/supabase-keepalive.yml` | 每 3 天往 `keepalive_logs` 写一行，防止免费 Supabase 项目休眠；检测到暂停会标红提醒 |
 | `docs/DEPLOY.md` | 你正在看的这份 |

@@ -1021,7 +1021,7 @@
 
     'clear-filter': () => { filters.customers = { q: '', level: '', status: '', sort: 'next' }; const _gs = $('#global-search'); if (_gs) _gs.value = ''; render(); },
     'export-csv': () => download(S.customersToCSV(), `客户清单_${S.todayStr()}.csv`, 'text/csv;charset=utf-8'),
-    'export-json': () => download(S.exportJSON(), `销冠助手备份_${S.todayStr()}.json`, 'application/json'),
+    'export-json': () => download(S.exportJSON({ secrets: true }), `销冠助手备份_${S.todayStr()}.json`, 'application/json'),
     'import-json': () => {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.accept = '.json,application/json';
@@ -1570,13 +1570,13 @@
     },
     'copy-datacode': () => {
       const code = btoa(unescape(encodeURIComponent(S.exportJSON())));
-      copyText(code).then(ok => toast(ok ? '数据码已复制（微信发给自己即可跨设备迁移）' : '复制失败', ok ? 'ok' : 'err'));
+      copyText(code).then(ok => toast(ok ? '数据码已复制（不含 API Key 和同步凭据，微信发给自己即可跨设备迁移）' : '复制失败', ok ? 'ok' : 'err'));
     },
     'paste-datacode': () => {
       openForm({
         title: '粘贴数据码导入',
         fields: [{ name: 'code', label: '数据码', type: 'textarea', required: true, placeholder: '把之前复制的数据码粘到这里' }],
-        submitText: '导入（会覆盖当前数据）',
+        submitText: '导入（以导入内容为准）',
         onSubmit: d => {
           try {
             const json = decodeURIComponent(escape(atob(d.code.trim())));

@@ -699,15 +699,48 @@ window.Store = (function () {
   const dealName = id => { const d = get('deals', id); return d ? d.title : ''; };
 
   /* ---------- 导入导出 ---------- */
-  function exportJSON() { return JSON.stringify(state, null, 2); }
+  /* 导出（2026-11-04 审计 M21）。
+   * 数据码是明文 base64，往往经微信发送、留在聊天记录里，所以默认剔除凭据：
+   * AI / Tavily 的 Key、同步配置（令牌、地址与 key）、自定义云配置。登录会话本来就不在 state 里。
+   * 「导出备份 JSON」是存在本机的文件，传 { secrets: true } 保留凭据，换机时少填一遍。 */
+  function stripCredentials(st) {
+    const out = clone(st);
+    const se = out.settings || {};
+    delete se.sync;
+    delete se.cloud;
+    ['ai', 'tavily'].forEach(k => { if (se[k] && typeof se[k] === 'object') se[k].key = ''; });
+    return out;
+  }
+  function exportJSON(opts) {
+    const withSecrets = !!(opts && opts.secrets);
+    return JSON.stringify(withSecrets ? state : stripCredentials(state), null, 2);
+  }
+  /* 导入（审计 M21）：
+   *   - 以导入内容为准：所有导入记录的 updatedAt 刷成现在，否则开着同步时会被云端较新的版本或删除标记盖回去
+   *   - 本机设备 ID 不跟着导入（EdgeOne 按设备 ID 分文件，两台设备同一 ID 会互相覆盖）
+   *   - 导入内容里没有的凭据（数据码默认剔除）保留本机现有的，导入后不用重新登录、重填 Key */
   function importJSON(text) {
     const obj = JSON.parse(text);
     if (!obj || typeof obj !== 'object') throw new Error('文件格式不正确');
+    const prev = state;
     state = Object.assign(emptyState(), obj);
     state.settings = Object.assign(emptyState().settings, obj.settings || {});
     SYNC_KEYS.forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
     const bad = SYNC_KEYS.reduce((n, k) => n + state[k].filter(r => !safeRecord(r)).length, 0);
-    if (bad) { load(); throw new Error('文件里有 ' + bad + ' 条记录的 id 含非法字符，已取消导入'); }
+    if (bad) { state = prev; throw new Error('文件里有 ' + bad + ' 条记录的 id 含非法字符，已取消导入'); }
+
+    state.deviceId = prev.deviceId || state.deviceId;
+    const ps = prev.settings || {}, ns = state.settings;
+    ['sync', 'cloud'].forEach(k => { if (ns[k] == null && ps[k] != null) ns[k] = clone(ps[k]); });
+    ['ai', 'tavily'].forEach(k => {
+      if (ps[k] && ps[k].key && !(ns[k] && ns[k].key)) ns[k] = Object.assign({}, ns[k] || {}, { key: ps[k].key });
+    });
+
+    const now = Date.now();
+    let i = 0;
+    SYNC_KEYS.forEach(k => state[k].forEach(r => { r.updatedAt = now + (i++); }));
+    ns.updatedAt = now + i;
+
     saveBlocked = false;      // 用户主动导入 = 明确同意覆盖（包括没能另存的损坏原文）
     migrate();
     save();

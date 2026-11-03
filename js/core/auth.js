@@ -360,12 +360,33 @@ window.Auth = (function () {
   /* 全队记录。只有管理员调得动——RLS 里 records 的管理员策略是只读的 select，
    * 普通成员调这个只会拿到空数组（甚至 403），这不是 bug，是隔离在起作用。
    * 拿到的东西不进本地库，只用于团队看板的一次性展示。 */
+  /* 2026-11-04 审计 M17：
+   *   ① 以前 select=data 把客户名、电话、备注整份拉到管理员浏览器，README 却说「不显示客户名字」。
+   *      看板只用得到下面这几个字段，就只拉这几个（PostgREST 的 data->>字段）。
+   *      注意这只是看板不拉；RLS 层面管理员仍有权读成员的完整记录，README 已如实写明。
+   *   ② 以前 limit=2000 一次拉完，记录多时看板静默少算。现在按主键排序逐页拉。 */
+  const TEAM_FIELDS = ['stage', 'amount', 'closedAt', 'nextFollowAt', 'at'];
+  const TEAM_PAGE = 1000;
+  const TEAM_MAX_PAGES = 50;
   async function teamRecords() {
     if (!isAdmin() || !teamId()) return [];
+    const select = 'user_id,kind,id,' + TEAM_FIELDS.map(f => f + ':data->>' + f).join(',');
+    const out = [];
     try {
-      return await api('/rest/v1/records?team_id=eq.' + encodeURIComponent(teamId()) +
-        '&deleted=eq.false&select=user_id,kind,id,data,deleted&limit=2000', { method: 'GET' });
-    } catch (e) { return []; }
+      for (let page = 0; page < TEAM_MAX_PAGES; page++) {
+        const rows = await api('/rest/v1/records?team_id=eq.' + encodeURIComponent(teamId()) +
+          '&deleted=eq.false&select=' + select + '&order=user_id.asc,kind.asc,id.asc' +
+          '&limit=' + TEAM_PAGE + '&offset=' + (page * TEAM_PAGE), { method: 'GET' });
+        if (!Array.isArray(rows)) break;
+        rows.forEach(r => {
+          const data = {};
+          TEAM_FIELDS.forEach(f => { if (r[f] != null) data[f] = r[f]; });
+          out.push({ user_id: r.user_id, kind: r.kind, id: r.id, deleted: false, data: data });
+        });
+        if (rows.length < TEAM_PAGE) break;
+      }
+      return out;
+    } catch (e) { return out.length ? out : []; }
   }
 
   /* ---------- 测试连接：填完配置先探一下 ---------- */
