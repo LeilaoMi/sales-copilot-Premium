@@ -211,6 +211,41 @@ function request(port, method, p, body, headers) {
   check('模板占位符令牌拒绝启动', (await exitCodeWith('change-me-to-a-long-random-string')) === 1);
   check('少于 16 位的令牌拒绝启动', (await exitCodeWith('short-token')) === 1);
   check('合格令牌正常启动', (await exitCodeWith('9f2c41d7ab03e6c58d1e')) === 'running');
+
+  /* ========== M15 数据目录不可写时如实上报 ========== */
+  section('M15 数据目录不可写');
+  const ro = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-ro-'));
+  fs.mkdirSync(path.join(ro, 'server')); fs.mkdirSync(path.join(ro, 'js/core'), { recursive: true });
+  fs.copyFileSync(path.join(root, 'server/server.js'), path.join(ro, 'server/server.js'));
+  fs.copyFileSync(path.join(root, 'js/core/sync-core.js'), path.join(ro, 'js/core/sync-core.js'));
+  fs.mkdirSync(path.join(ro, 'data'));
+  fs.chmodSync(path.join(ro, 'data'), 0o555);   // 目录存在但不可写：mkdir 不会报错
+  const asRoot = process.getuid && process.getuid() === 0;
+  if (asRoot) {
+    console.log('SKIP  以 root 运行，目录权限不生效，跳过本节');
+  } else {
+    const p2 = port + 2;
+    const c2 = spawn(process.execPath, [path.join(ro, 'server/server.js')], {
+      env: Object.assign({}, process.env, { PORT: String(p2), SYNC_TOKEN: token, REQUIRE_DISK: '' }), stdio: 'ignore'
+    });
+    let h = null;
+    for (let i = 0; i < 50 && !h; i++) {
+      const r = await request(p2, 'GET', '/api/health');
+      if (r.status === 200) h = JSON.parse(r.body); else await new Promise(rs => setTimeout(rs, 100));
+    }
+    c2.kill();
+    check('健康检查如实报 storage:memory（实得 ' + (h && h.storage) + '）', !!h && h.storage === 'memory');
+    const code = await new Promise(rs => {
+      const c3 = spawn(process.execPath, [path.join(ro, 'server/server.js')], {
+        env: Object.assign({}, process.env, { PORT: String(p2 + 1), SYNC_TOKEN: token, REQUIRE_DISK: '1' }), stdio: 'ignore'
+      });
+      const t = setTimeout(() => { c3.kill(); rs('running'); }, 1500);
+      c3.on('exit', c => { clearTimeout(t); rs(c); });
+    });
+    check('REQUIRE_DISK=1 时拒绝启动', code === 1);
+  }
+  fs.chmodSync(path.join(ro, 'data'), 0o755);
+  fs.rmSync(ro, { recursive: true, force: true });
   fs.rmSync(tmp, { recursive: true, force: true });
 
   if (fail && stderr) console.log('\n--- server stderr ---\n' + stderr);

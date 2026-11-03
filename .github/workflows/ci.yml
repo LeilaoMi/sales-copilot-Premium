@@ -66,3 +66,49 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm test
+
+  # Docker 模板实测（2026-11-04 审计 M15）：以前 VOLUME 之后的 chown 被丢弃，
+  # 绑定挂载的目录属主是 root，app 用户写不进去，健康检查却报 storage:file，重启即丢。
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建镜像
+        run: docker build -t sales-copilot -f deploy/Dockerfile .
+
+      - name: 命名卷：能落盘、重启不丢、健康检查为 healthy
+        run: |
+          set -eu
+          TOKEN=$(openssl rand -hex 16)
+          docker run -d --name sc -p 18080:8080 -e SYNC_TOKEN=$TOKEN -v sc-data:/app/data sales-copilot
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18080/api/health | grep -q '"storage":"file"'
+          curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            --data '{"data":{"customers":[{"id":"ci1","name":"CI","updatedAt":1}]}}' http://127.0.0.1:18080/api/sync
+          docker restart sc
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/api/health >/dev/null && break; sleep 1; done
+          curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18080/api/sync | grep -q '"ci1"'
+          for i in $(seq 1 30); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' sc); echo "health=$s"
+            [ "$s" = healthy ] && break; sleep 2
+          done
+          [ "$(docker inspect -f '{{.State.Health.Status}}' sc)" = healthy ]
+          ! docker logs sc 2>&1 | grep -q "$TOKEN"
+
+      - name: 绑定 root 属主目录：拒绝启动而不是假装存上
+        run: |
+          set -eu
+          sudo mkdir -p /tmp/rootdata && sudo chown root:root /tmp/rootdata && sudo chmod 755 /tmp/rootdata
+          docker run --name sc-root -e SYNC_TOKEN=$(openssl rand -hex 16) -v /tmp/rootdata:/app/data sales-copilot || true
+          [ "$(docker inspect -f '{{.State.ExitCode}}' sc-root)" = 1 ]
+          docker logs sc-root 2>&1 | grep -q '不可写'
+
+      - name: 按文档给宿主目录授权后可以写
+        run: |
+          set -eu
+          sudo mkdir -p /tmp/okdata && sudo chown 10001:10001 /tmp/okdata
+          docker run -d --name sc-ok -p 18081:8080 -e SYNC_TOKEN=$(openssl rand -hex 16) -v /tmp/okdata:/app/data sales-copilot
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18081/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18081/api/health | grep -q '"storage":"file"'

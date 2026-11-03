@@ -52,8 +52,26 @@ if (FIXED_TOKEN && (FIXED_TOKEN.length < 16 || PLACEHOLDER_RE.test(FIXED_TOKEN))
   process.exit(1);
 }
 let SUGGESTED = '';
-let writable = true;
-try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { writable = false; }
+/* 启动时真写一次（2026-11-04 审计 M15）。以前只看 mkdir 有没有抛错：目录已存在但属主是 root
+ * （Docker 绑定挂载的典型情况）时 mkdir 照样成功，于是每次落盘都失败、只打日志，
+ * /api/health 却一直报 storage:file，重启即丢。REQUIRE_DISK=1 时不可写直接退出（容器模板默认开）。 */
+function probeWritable() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const f = path.join(DATA_DIR, '.write-probe-' + process.pid);
+    fs.writeFileSync(f, 'ok');
+    fs.unlinkSync(f);
+    return true;
+  } catch (e) {
+    console.error('数据目录不可写：' + DATA_DIR + '（' + (e.code || e.message) + '）');
+    return false;
+  }
+}
+let writable = probeWritable();
+if (!writable && /^(1|true|yes)$/i.test(process.env.REQUIRE_DISK || '')) {
+  console.error('REQUIRE_DISK 已开启，数据目录不可写时拒绝启动。容器部署请检查卷的属主（见 deploy/Dockerfile 顶部说明）。');
+  process.exit(1);
+}
 try { SUGGESTED = fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch (e) {}
 if (!SUGGESTED) {
   SUGGESTED = crypto.randomBytes(12).toString('hex');

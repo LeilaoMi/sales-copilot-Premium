@@ -294,7 +294,7 @@ SYNC_TOKEN=一串长随机字符 PORT=8080 node server/server.js
 # Docker（在仓库根执行；模板在 deploy/ 下，必须用 -f 指过来）
 docker build -t sales-copilot -f deploy/Dockerfile .
 docker run -d --name sales-copilot -p 8080:8080 \
-  -e SYNC_TOKEN=你自己的长令牌 -v $(pwd)/sync-data:/app/data \
+  -e SYNC_TOKEN=$(openssl rand -hex 16) -v sales-copilot-data:/app/data \
   --restart unless-stopped sales-copilot
 
 # systemd：照 deploy/sales-copilot.service 顶部的安装步骤走
