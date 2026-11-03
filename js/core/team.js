@@ -53,19 +53,19 @@ window.Team = (function () {
         if (d.nextFollowAt && d.nextFollowAt < today) u.overdue++;
       } else if (r.kind === 'deals') {
         if (d.stage === 'won') {
-          if ((d.closedAt || '').slice(0, 7) === month) {
+          if (d.closedAt && S.monthKey(d.closedAt) === month) {   // 本地月份，不截 UTC 字符串（审计 M12）
             u.wonThisMonth++;
             u.wonAmount += Number(d.amount) || 0;
           }
         } else if (d.stage === 'lost') {
-          if ((d.closedAt || '').slice(0, 7) === month) u.lostThisMonth++;
+          if (d.closedAt && S.monthKey(d.closedAt) === month) u.lostThisMonth++;
         } else {
           u.openDeals++;
           u.openAmount += Number(d.amount) || 0;
         }
       } else if (r.kind === 'followups') {
         u.followUps++;
-        const at = String(d.at || '').slice(0, 10);
+        const at = d.at ? S.fmtDate(d.at) : '';
         if (at && at > u.lastFollowAt) u.lastFollowAt = at;
       }
     });

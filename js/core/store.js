@@ -40,7 +40,20 @@ window.Store = (function () {
   const safeRef = v => v == null || v === '' || isSafeId(v);
   const safeRecord = r => !!r && typeof r === 'object' && isSafeId(r.id) && safeRef(r.customerId) && safeRef(r.dealId);
   const pad = n => String(n).padStart(2, '0');
-  const toDate = v => (v ? new Date(v) : null);
+  /* 纯日期按本地时间解析（2026-11-04 审计 M12）。
+   * new Date('2026-11-04') 按规范是 UTC 零点：在 UTC− 时区（美洲）它是本地的前一天，
+   * 于是「明天」算成今天、今天的跟进算成逾期。'YYYY-MM-DD' 和 'YYYY-MM' 一律当本地日期，
+   * 带时间的 ISO 字符串、时间戳、Date 对象照常解析（它们本来就是一个确定的时刻）。 */
+  const DAY_RE = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/;
+  const toDate = v => {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'string') {
+      const m = DAY_RE.exec(v);
+      if (m) return new Date(+m[1], +m[2] - 1, m[3] ? +m[3] : 1);
+    }
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  };
   const fmtDate = v => { const d = toDate(v); return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : ''; };
   const fmtDateTime = v => { const d = toDate(v); return d ? `${fmtDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''; };
   const todayStr = () => fmtDate(new Date());
@@ -128,6 +141,14 @@ window.Store = (function () {
     let i = 0;
     SYNC_KEYS.forEach(k => {
       (state[k] || []).forEach(r => {
+        /* updatedAt 必须是毫秒数字：合并、版本号、服务端 LWW 都按数字比。
+         * 以前界面新建商机时写的是 ISO 字符串（ui.js），示例数据也是（审计 m5），
+         * 它们一律被当成 0，谁都能覆盖它们。这里把字符串按时刻换算回数字。 */
+        if (r.updatedAt && typeof r.updatedAt !== 'number') {
+          const n = Number(r.updatedAt);
+          const t = isFinite(n) ? n : Date.parse(r.updatedAt);
+          r.updatedAt = (t && !isNaN(t)) ? t : 0;
+        }
         if (!r.updatedAt) {
           const t = Date.parse(r.createdAt || r.at || r.closedAt || 0);
           r.updatedAt = (t && !isNaN(t)) ? t : now + (i++);
@@ -407,7 +428,9 @@ window.Store = (function () {
     return (o && !o.deleted) ? o : null;
   }
   function insert(name, obj) {
-    const o = Object.assign({ id: uid(), updatedAt: Date.now() }, obj);
+    const o = Object.assign({ id: uid() }, obj);
+    /* 调用方传进来的 updatedAt 若不是数字（比如 ISO 字符串）一律改成当前毫秒数，理由见 migrate() */
+    if (typeof o.updatedAt !== 'number' || !isFinite(o.updatedAt)) o.updatedAt = Date.now();
     state[name].unshift(o);
     save();
     if (window.Sync && Sync.onLocalChange) Sync.onLocalChange();

@@ -371,6 +371,7 @@ node tools/test-xss.js        # 页面渲染不被记录内容注入
 node tools/test-sync.js       # 快照同步：空间名、请求头、凭据不上云
 node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
 node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
+node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本地算
 (cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
 
 # 3. 构建两个产物，并起本地服务
