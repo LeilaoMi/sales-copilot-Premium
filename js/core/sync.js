@@ -239,17 +239,41 @@ window.Sync = (function () {
    *   这里一个权限判断都不写——写了也不可靠，前端判断是能绕过去的。 */
   const cloudAdapter = {
     label: 'Supabase 账号',
+    /* 增量拉取（2026-11-04 审计 M6）。
+     * 以前是 updated_at > 游标、一次 2000 条：触发器用事务时间 now()，一批 500 条
+     * 共用一个时间戳，第 2000 行落在某批中间时，这批剩下的行以后永远拉不到。
+     * 现在：updated_at >= 游标，按 (updated_at, kind, id) 稳定排序逐页拉完；
+     * 下一页从本页最后一个时间戳起拉，并用 offset 跳过已拿到的同时间戳行。
+     * 边界行重复拉到没关系：applyRecords 是逐条 LWW，幂等。 */
     async pull(c) {
-      const since = c.pullCursor || '1970-01-01T00:00:00Z';
-      const rows = await Auth.api(
-        '/rest/v1/records?user_id=eq.' + encodeURIComponent(Auth.userId()) +
-        '&updated_at=gt.' + encodeURIComponent(since) +
-        '&select=kind,id,data,deleted,updated_at&order=updated_at.asc&limit=2000',
-        { method: 'GET' });
-      return { rows: rows || [] };
+      const PAGE = 1000;
+      let since = c.pullCursor || '1970-01-01T00:00:00Z';
+      let offset = 0;
+      const all = [];
+      for (let guard = 0; guard < 500; guard++) {
+        const rows = await Auth.api(
+          '/rest/v1/records?user_id=eq.' + encodeURIComponent(Auth.userId()) +
+          '&updated_at=gte.' + encodeURIComponent(since) +
+          '&select=kind,id,data,deleted,updated_at&order=updated_at.asc,kind.asc,id.asc' +
+          '&limit=' + PAGE + (offset ? '&offset=' + offset : ''),
+          { method: 'GET' });
+        const list = rows || [];
+        for (let i = 0; i < list.length; i++) all.push(list[i]);
+        if (list.length < PAGE) break;
+        const last = list[list.length - 1].updated_at;
+        if (last === since) {
+          offset += PAGE;                 // 整页都是同一时间戳，继续往后翻
+        } else {
+          since = last;
+          offset = list.filter(r => r.updated_at === last).length;
+        }
+      }
+      return { rows: all };
     },
     async push(c, changes) {
       if (!changes.length) return null;
+      /* team_id 以服务端为准（审计 M4：records_20_team 触发器按作者当前团队改写），
+       * 这里照传只是兼容没跑迁移的旧库。 */
       const tid = Auth.teamId() || null;
       const body = changes.map(r => ({
         user_id: Auth.userId(),
@@ -383,12 +407,14 @@ window.Sync = (function () {
     }
 
     /* 推：只推上次推之后变过的。
-     * 游标回退 5 秒是刻意的——推送期间用户很可能还在改东西，
-     * 这 5 秒的宽限能保证那些改动不会被漏掉，代价只是下次多推几条。 */
+     * 游标记的是「开始收集改动之前」的时间（2026-11-04 审计 M7）：以前记推完的时间，
+     * 推送超过 5 秒（几千条、手机网络）时，推送期间改的记录永远不会再被推。
+     * 回退 5 秒仍保留，用来吸收本机时钟的小幅跳动，代价只是下次多推几条。 */
     const since = Number(c.pushCursor) || 0;
+    const t0 = Date.now();
     const changes = changedSince(since ? since - 5000 : 0);
     await cloudAdapter.push(c, changes);
-    saveCfg({ pushCursor: Date.now() });
+    saveCfg({ pushCursor: t0 });
 
     return { pulled: n, pushed: changes.length, settingsChanged: setChanged };
   }
