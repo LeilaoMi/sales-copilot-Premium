@@ -32,6 +32,13 @@ window.Store = (function () {
 
   /* ---------- 工具 ---------- */
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  /* 记录 id 白名单（2026-11-04 审计 M2）：渲染层已统一转义，这里在入口再挡一道，
+   * 与服务端 sync-core validate() 的规则一致。外来数据（导入、云端拉取）只认这种 id。 */
+  const SAFE_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+  const isSafeId = v => typeof v === 'string' && SAFE_ID.test(v);
+  /* 关联字段（customerId/dealId）为空可以，有值则必须合法 */
+  const safeRef = v => v == null || v === '' || isSafeId(v);
+  const safeRecord = r => !!r && typeof r === 'object' && isSafeId(r.id) && safeRef(r.customerId) && safeRef(r.dealId);
   const pad = n => String(n).padStart(2, '0');
   const toDate = v => (v ? new Date(v) : null);
   const fmtDate = v => { const d = toDate(v); return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : ''; };
@@ -587,6 +594,8 @@ window.Store = (function () {
     state = Object.assign(emptyState(), obj);
     state.settings = Object.assign(emptyState().settings, obj.settings || {});
     SYNC_KEYS.forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
+    const bad = SYNC_KEYS.reduce((n, k) => n + state[k].filter(r => !safeRecord(r)).length, 0);
+    if (bad) { load(); throw new Error('文件里有 ' + bad + ' 条记录的 id 含非法字符，已取消导入'); }
     migrate();
     save();
   }
@@ -767,7 +776,7 @@ window.Store = (function () {
   return {
     KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
-    addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, sum, daysLeftInMonth,
+    addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, isSafeId, safeRecord, sum, daysLeftInMonth,
     load, save, reset, seed, isPersistent, migrate, revision, purge, purgeDemo,
     shouldSeedDemo, markOnboarded,
     list, get, insert, update, remove, removeCustomer, setStage,

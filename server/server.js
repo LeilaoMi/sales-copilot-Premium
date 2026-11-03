@@ -149,6 +149,19 @@ const calcRevision = CORE.calcRevision;
 const validate = CORE.validate;
 
 /* ---------- HTTP ---------- */
+/* 页面安全头（2026-11-04 审计 M3）。
+ * 重点是 script-src 'self'：即使哪里漏了转义、被塞进 onmouseover=… 之类的内联处理器，
+ * 浏览器也不会执行。connect-src 放得很宽是有意的——AI 接口、自建同步、Supabase
+ * 地址都允许用户自填（含本机 http://localhost），收窄会直接弄坏这些功能。
+ * style 需要 'unsafe-inline'：页面大量使用 style="" 属性。
+ * 与 deploy/_headers、vercel.json 保持同一份内容。 */
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: http: wss:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const PAGE_HEADERS = {
+  'Content-Security-Policy': CSP,
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin'
+};
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -332,7 +345,7 @@ const server = http.createServer((req, res) => {
         : {};
       send(res, 200, buf, Object.assign({
         'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream'
-      }, extra));
+      }, PAGE_HEADERS, extra));
     });
   });
 });

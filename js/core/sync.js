@@ -50,6 +50,7 @@ window.Sync = (function () {
       const map = new Map();
       (a[k] || []).forEach(r => map.set(r.id, r));
       (b[k] || []).forEach(r => {
+        if (!S.safeRecord(r)) return;   // 远端快照里 id 不合规的记录不收（审计 M2）
         const prev = map.get(r.id);
         if (!prev || (Number(r.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) map.set(r.id, r);
       });
@@ -282,11 +283,12 @@ window.Sync = (function () {
         /* 云端返回什么不完全由我们说了算：网关、代理、手写的数据都可能掺进
          * null 或缺字段的行。同步是后台跑的，在这里抛异常没有任何人能看到，
          * 只会让整个同步静默停摆——所以宁可跳过也不能崩。 */
-        if (!r || !r.id || S.SYNC_KEYS.indexOf(r.kind) < 0) return;
+        if (!r || !S.isSafeId(r.id) || S.SYNC_KEYS.indexOf(r.kind) < 0) return;
         if (!Array.isArray(S.state[r.kind])) S.state[r.kind] = [];
         const arr = S.state[r.kind];
         const idx = arr.findIndex(x => x.id === r.id);
         const remote = Object.assign({}, (r.data || {}), { id: r.id, deleted: !!r.deleted });
+        if (!S.safeRecord(remote)) return;   // 关联 id 含非法字符的行同样跳过（审计 M2）
         if (idx < 0) {
           arr.push(remote);
           changed++;

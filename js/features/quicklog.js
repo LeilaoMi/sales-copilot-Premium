@@ -307,7 +307,7 @@ window.QuickLog = (function () {
     const S = window.Store;
     const E = S.escapeHtml;
     const opts = S.list('customers').map(c =>
-      `<option value="${c.id}" ${c.id === p.customerId ? 'selected' : ''}>${E(c.name)}${c.contact ? ' · ' + E(c.contact) : ''}</option>`).join('');
+      `<option value="${E(c.id)}" ${c.id === p.customerId ? 'selected' : ''}>${E(c.name)}${c.contact ? ' · ' + E(c.contact) : ''}</option>`).join('');
     return [
       {
         name: 'customerId', label: '客户', type: 'select', half: true,

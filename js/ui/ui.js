@@ -94,7 +94,7 @@
     const req = f.required ? ' required' : '';
     let inner = '';
     if (f.type === 'select') {
-      inner = `<select name="${f.name}"${req}>` +
+      inner = `<select name="${E(f.name)}"${req}>` +
         (f.placeholder ? `<option value="">${E(f.placeholder)}</option>` : '') +
         (f.options || []).map(o => {
           const value = typeof o === 'object' ? o.value : o;
@@ -102,9 +102,9 @@
           return `<option value="${E(value)}" ${String(v) === String(value) ? 'selected' : ''}>${E(label)}</option>`;
         }).join('') + '</select>';
     } else if (f.type === 'textarea') {
-      inner = `<textarea name="${f.name}" placeholder="${E(f.placeholder || '')}"${req}>${E(v)}</textarea>`;
+      inner = `<textarea name="${E(f.name)}" placeholder="${E(f.placeholder || '')}"${req}>${E(v)}</textarea>`;
     } else {
-      inner = `<input type="${f.type || 'text'}" name="${f.name}" value="${E(v)}"
+      inner = `<input type="${f.type || 'text'}" name="${E(f.name)}" value="${E(v)}"
         placeholder="${E(f.placeholder || '')}"${req}${f.min != null ? ' min=' + f.min : ''}${f.step ? ' step=' + f.step : ''}>`;
     }
     return `<div class="field"><label>${E(f.label)}</label>${inner}${f.hint ? `<div class="hint">${E(f.hint)}</div>` : ''}</div>`;
@@ -350,7 +350,7 @@
     const sel = `
       <select id="dg-cust" class="dg-sel">
         <option value="">— 选择客户 —</option>
-        ${S.list('customers').map(x => `<option value="${x.id}" ${c && c.id === x.id ? 'selected' : ''}>${E(x.name)}${x.contact ? ' · ' + E(x.contact) : ''}</option>`).join('')}
+        ${S.list('customers').map(x => `<option value="${E(x.id)}" ${c && c.id === x.id ? 'selected' : ''}>${E(x.name)}${x.contact ? ' · ' + E(x.contact) : ''}</option>`).join('')}
       </select>`;
 
     openModal(`

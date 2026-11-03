@@ -4,7 +4,8 @@
  * 守住 2026-11-04 审计里实测复现过的三个服务端问题：
  *   C2  畸形百分号编码的 URL 让 decodeURIComponent 抛错，进程退出；
  *   C3  请求体逐块转字符串，汉字被分包切开后落盘成 U+FFFD；
- *   C4  集合字段不是数组时 merge 抛错，进程退出。
+ *   C4  集合字段不是数组时 merge 抛错，进程退出；
+ *   M3  页面响应缺少 CSP / 防嵌套头。
  *
  * 零依赖：把 server.js 和 sync-core.js 复制到临时目录里起服务，
  * 不会往仓库的 data/ 写任何东西。
@@ -119,6 +120,18 @@ function request(port, method, p, body, headers) {
     const onDisk = fs.readdirSync(path.join(tmp, 'data')).filter(f => /^store-.*\.json$/.test(f))
       .map(f => fs.readFileSync(path.join(tmp, 'data', f), 'utf8')).join('');
     check('落盘文件里也没有 U+FFFD', onDisk.length > 0 && !/\uFFFD/.test(onDisk));
+
+    /* ========== 5b. 页面安全头（审计 M3） ========== */
+    section('页面安全头');
+    const page = await new Promise(resolve => {
+      http.get({ host: '127.0.0.1', port: port, path: '/', agent: false }, res => { res.resume(); resolve(res.headers); })
+        .on('error', () => resolve({}));
+    });
+    const csp = page['content-security-policy'] || '';
+    check('首页带 CSP', !!csp);
+    check("CSP 禁止内联脚本（script-src 'self'，无 unsafe-inline）", /script-src 'self'(;|$)/.test(csp));
+    check("CSP 禁止被嵌套（frame-ancestors 'none'）", /frame-ancestors 'none'/.test(csp));
+    check('X-Frame-Options: DENY', page['x-frame-options'] === 'DENY');
 
     /* ========== 6. 超大请求体 ========== */
     section('8MB 上限');
