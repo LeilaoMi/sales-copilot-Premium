@@ -59,9 +59,17 @@
       const t = String(a).replace(/^Bearer\s+/i, '').trim();
       if (t) return t;
     }
-    const u = req.url || '';
-    const m = String(u).match(/[?&]token=([^&]+)/);
-    return m ? decodeURIComponent(m[1]) : '';
+    /* 不再接受 ?token=（审计 m8）：查询参数会原样进反向代理和平台的访问日志。
+     * 前端一直走请求头，这里去掉不影响现有客户端。 */
+    return '';
+  }
+  /* 恒定时间比较：逐字节异或，耗时只取决于长度，不随第几位不同而变（审计 m8） */
+  function safeEqual(a, b) {
+    a = String(a); b = String(b);
+    let diff = a.length ^ b.length;
+    const n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i % (a.length || 1)) || 0) ^ (b.charCodeAt(i % (b.length || 1)) || 0);
+    return diff === 0;
   }
 
   /* 校验。两种模式：
@@ -70,7 +78,7 @@
   function authOk(req, fixedToken) {
     const t = tokenOf(req);
     if (!t) return false;
-    if (fixedToken) return t === fixedToken;
+    if (fixedToken) return safeEqual(t, fixedToken);
     return t.length >= 8;
   }
 
@@ -109,6 +117,8 @@
   /* 只认数组：旧数据或别的实现写坏了也不至于把合并打挂 */
   const listOf = (o, k) => (o && Array.isArray(o[k]) ? o[k] : []);
 
+  const TOMB_TTL = 30 * 864e5;
+  const isStaleTomb = r => !!(r && r.deleted && (Number(r.updatedAt) || 0) < Date.now() - TOMB_TTL);
   function merge(a, b) {
     const out = {};
     KEYS.forEach(k => {
@@ -117,6 +127,8 @@
       listOf(b, k).forEach(r => {
         if (!r || !r.id) return;
         const prev = map.get(r.id);
+        /* 对方有、本方没有的过期墓碑不再带回来（审计 m7：压缩数据后被同步拉回） */
+        if (!prev && isStaleTomb(r)) return;
         if (!prev || (Number(r.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) map.set(r.id, r);
       });
       out[k] = Array.from(map.values());

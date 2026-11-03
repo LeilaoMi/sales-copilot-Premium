@@ -43,7 +43,9 @@ window.Sync = (function () {
     S.save();
   }
 
-  /* ---------- 合并：逐条 LWW，墓碑参与 ---------- */
+  /* ---------- 合并：逐条 LWW，墓碑参与 ----------
+   * 浏览器端没有加载 js/core/sync-core.js（它服务 server.js 与 EdgeOne），这里是同一规则的第二份实现，
+   * 改一处必须同步改另一处：tools/test-minor.js 用同一组用例同时跑两份，结果不一致即失败（审计 m9）。 */
   function merge(a, b) {
     const out = {};
     S.SYNC_KEYS.forEach(k => {
@@ -52,6 +54,8 @@ window.Sync = (function () {
       (b[k] || []).forEach(r => {
         if (!S.safeRecord(r)) return;   // 远端快照里 id 不合规的记录不收（审计 M2）
         const prev = map.get(r.id);
+        /* 对方有、本方没有的过期墓碑不再带回来（审计 m7） */
+        if (!prev && r.deleted && (Number(r.updatedAt) || 0) < Date.now() - (S.TOMB_TTL || 30 * 864e5)) return;
         if (!prev || (Number(r.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) map.set(r.id, r);
       });
       out[k] = [...map.values()];
@@ -343,6 +347,8 @@ window.Sync = (function () {
         const remote = Object.assign({}, (r.data || {}), { id: r.id, deleted: !!r.deleted });
         if (!S.safeRecord(remote)) return;   // 关联 id 含非法字符的行同样跳过（审计 M2）
         if (idx < 0) {
+          /* 本地没有、云端是 30 天前的墓碑：多半是本地压缩过，不再拉回（审计 m7） */
+          if (remote.deleted && (Number(remote.updatedAt) || 0) < Date.now() - (S.TOMB_TTL || 30 * 864e5)) return;
           arr.push(remote);
           changed++;
           return;

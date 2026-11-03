@@ -19,11 +19,37 @@ create table if not exists keepalive_logs (
 
 alter table keepalive_logs enable row level security;
 
+/* 2026-11-04 审计 m11：以前是一条 for all using(true) 的策略，
+ * 拿着公开 key 的任何人都能无限 INSERT（灌爆免费额度）、一把 DELETE 删光。
+ * 现在按保活工作流实际的三个动作分别放行：
+ *   insert：时间只能是「现在」，且距上一条至少 10 分钟（触发器限流）
+ *   select：只读，无业务数据
+ *   delete：只能删 30 天前的旧行 */
 drop policy if exists "anon keepalive" on keepalive_logs;
-create policy "anon keepalive" on keepalive_logs
-  for all to anon
-  using (true)
-  with check (true);
+drop policy if exists "keepalive insert" on keepalive_logs;
+drop policy if exists "keepalive select" on keepalive_logs;
+drop policy if exists "keepalive delete old" on keepalive_logs;
+create policy "keepalive insert" on keepalive_logs
+  for insert to anon
+  with check (pinged_at between now() - interval '5 minutes' and now() + interval '5 minutes');
+create policy "keepalive select" on keepalive_logs
+  for select to anon
+  using (true);
+create policy "keepalive delete old" on keepalive_logs
+  for delete to anon
+  using (pinged_at < now() - interval '30 days');
+
+create or replace function keepalive_rate_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from keepalive_logs where pinged_at > now() - interval '10 minutes') then
+    raise exception 'keepalive: 10 分钟内只能写一次' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists keepalive_rate_limit on keepalive_logs;
+create trigger keepalive_rate_limit before insert on keepalive_logs
+  for each row execute function keepalive_rate_limit();
 
 -- ============================================================
 -- 以下为 2026-10-09 并入的授权补丁（原文 db/keepalive_grants_patch.sql）

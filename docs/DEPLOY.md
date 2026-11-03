@@ -218,6 +218,18 @@ npx wrangler pages deploy public
 
 同步胶囊变绿，就通了。
 
+### 绑了自定义域名的话：关掉会往页面里塞脚本的功能
+
+`pages.dev` 默认不受影响。把域名接到 Cloudflare 后，**Bot Fight Mode / JavaScript Detections**、
+**Rocket Loader**、**Email Address Obfuscation** 这几项会往 HTML 里注入一段内联脚本
+（`/cdn-cgi/challenge-platform/...`、`__CF$cv$params`）。本应用的安全头只允许加载自家的脚本
+（`deploy/_headers` 里的 `script-src 'self'`），注入的内联脚本会被浏览器拦下，控制台报 CSP 错误；
+挑战失败时还可能反复转圈。
+
+到 Cloudflare 控制台对应域名：**Security → Bots** 关掉 Bot Fight Mode（或在 Configure 里关 JavaScript Detections），
+**Speed → Optimization** 关掉 Rocket Loader，**Scrape Shield** 关掉 Email Address Obfuscation。
+验证：浏览器打开站点，查看页面源代码，搜不到 `cdn-cgi/challenge-platform` 就对了。（审计 m21）
+
 ---
 
 ## 4. 路线 B：Vercel
@@ -245,8 +257,8 @@ npx wrangler pages deploy public
 
 细节全在 [`deploy/edgeone/README.md`](../deploy/edgeone/README.md)，这里只给主干和最容易错的点：
 
-1. 把 `deploy/edgeone/` 整个目录复制成你的站点仓库（它是个独立的小项目）
-2. `node prepare.js` —— **每次升级都要跑**，理由见下
+1. 先在本仓库里跑 `node deploy/edgeone/prepare.js` —— **每次升级都要跑**，理由见下（拷出去再跑会找不到源文件）
+2. 再把 `deploy/edgeone/` 整个目录复制成你的站点仓库（它是个独立的小项目）
 3. `npm install`（全仓库唯一有 npm 依赖的地方：`@edgeone/pages-blob`，需 Node ≥ 18）
 4. 推到 Git → EdgeOne 控制台建 Pages 项目：框架选「其他 / 无」，安装命令 `npm install`，构建命令留空
 5. 函数环境变量：`BLOB_STORE`（存储桶名，默认 `sales-copilot`）、`SYNC_TOKEN`（留空 = 多人模式，令牌即空间）、`MAX_DEVICES`（默认 20，满了把最旧设备无损收拢）、`MAX_SPACES`（默认 200，多人模式新空间超出返回 503）。改完要重新部署一次才生效
@@ -257,7 +269,7 @@ npx wrangler pages deploy public
 > 就是 `js/core/sync-core.js`。EdgeOne 云函数是 ESM，用不了那份 CJS，所以脚本按
 > `SYNC-CORE-BEGIN/END` 标记把它抽出来生成 ESM 副本。你改了主项目的 sync-core 却忘了重跑
 > `prepare.js`，两边算法就开始漂移 —— 表现是同一份数据在设备和云端各算出不同结果，极难查。
-> CI 里用 `node prepare.js --check` 当闸门，不一致直接红。
+> CI 里用 `node deploy/edgeone/prepare.js --check` 当闸门，不一致直接红。
 
 ---
 

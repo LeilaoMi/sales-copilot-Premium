@@ -55,8 +55,23 @@
   }
 
   /* ---------- 模态 ---------- */
+  /* 审计 m14：关弹窗后焦点回到打开它的按钮；Tab 键不跑到遮罩后面的页面上 */
+  let modalOpener = null;
+  function trapFocus(e) {
+    if (e.key !== 'Tab') return;
+    const bd = $('#modal-backdrop');
+    if (!bd || bd.hidden) return;
+    const els = Array.from(document.querySelectorAll('#modal a[href],#modal button,#modal input,#modal select,#modal textarea,#modal [tabindex]'))
+      .filter(x => !x.disabled && x.type !== 'hidden' && x.offsetParent !== null);
+    if (!els.length) return;
+    const first = els[0], last = els[els.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  document.addEventListener('keydown', trapFocus);
   function openModal(html) {
     const bd = $('#modal-backdrop');
+    if (bd.hidden) modalOpener = document.activeElement;
     $('#modal').innerHTML = html;
     bd.hidden = false;          // 双保险：不依赖 CSS 的 [hidden] 规则
     bd.style.display = 'flex';
@@ -71,6 +86,8 @@
     document.body.classList.remove('modal-open');
     $('#modal').innerHTML = '';
     formSubmit = null;
+    if (modalOpener && document.contains(modalOpener) && modalOpener.focus) { try { modalOpener.focus(); } catch (e) {} }
+    modalOpener = null;
   }
 
   /* 带标题的通用弹窗。
@@ -299,8 +316,11 @@
       ],
       onSubmit: v => {
         if (!v.title || !v.customerId) { toast('名称和客户必填', 'err'); return; }
-        v.amount = Number(v.amount) || 0;
-        v.updatedAt = new Date().toISOString();
+        /* 审计 m26：留空以前静默变成 0，这单在回款预测里就成了 0 元；负数也照收。 */
+        const amt = String(v.amount == null ? '' : v.amount).trim();
+        if (amt === '' || !isFinite(Number(amt)) || Number(amt) < 0) { toast('请填金额（不确定就先填估计值）', 'err'); return; }
+        v.amount = Number(amt);
+        v.updatedAt = Date.now();
         if (isNew) {
           v.createdAt = new Date().toISOString();
           const nd = S.insert('deals', v);
@@ -715,7 +735,11 @@
       if (!boardData) loadBoard();      // 第一次进来才拉，拉完只刷这一屏
     }
 
-    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+    $$('.tab').forEach(t => {
+      const on = t.dataset.view === view;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');   // 审计 m14：读屏要知道当前页签
+    });
 
     refreshTeamTab();
 
@@ -1045,7 +1069,7 @@
       const s = S.state.settings;
       s.owner = readVal('set-owner') || '我';
       s.monthlyTarget = Number(readVal('set-target')) || 0;
-      s.commissionRate = Number(readVal('set-rate')) || 0;
+      s.commissionRate = Math.min(100, Math.max(0, Number(readVal('set-rate')) || 0));   // 审计 m26：输入框的 max=100 挡不住手打
       S.save(); toast('设置已保存', 'ok'); render();
     },
 
@@ -1455,7 +1479,7 @@
     },
     'sync-purge': () => {
       const n = S.purge();
-      toast(n ? `已清理 ${n} 条墓碑记录` : '没有可清理的墓碑记录', 'ok');
+      toast(n ? `已清理 ${n} 条 30 天前的删除记录` : '没有 30 天前的删除记录可清理（更近的要留着同步给其他设备）', 'ok');
       render();
     },
     'fill-public-endpoint': () => {

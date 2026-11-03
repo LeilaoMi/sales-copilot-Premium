@@ -62,6 +62,9 @@ jobs:
       - name: 健康度测试
         run: node tools/test-health.js
 
+      - name: Minor 批回归
+        run: node tools/test-minor.js
+
       - name: Service Worker 与通知测试
         run: node tools/test-sw.js
 

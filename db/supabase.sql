@@ -63,6 +63,9 @@ declare
   new_team_id uuid;
   member_count int;
 begin
+  /* 首个用户判定要串行（审计 m12）：两人几乎同时注册时，两个事务都数到 0，
+   * 会各建一个团队、各当 owner。事务级咨询锁让并发注册在这里排队。 */
+  perform pg_advisory_xact_lock(hashtext('sales_copilot.handle_new_user'));
   select count(*) into member_count from public.profiles;
 
   if member_count = 0 then
@@ -72,7 +75,7 @@ begin
       values (
         coalesce(new.raw_user_meta_data->>'name', '我的团队'),
         new.id,
-        upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+        upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
       )
       returning id into new_team_id;
 
@@ -199,9 +202,11 @@ create policy "profile_admin_update" on profiles
   for update to authenticated
   using (
     my_role() in ('owner', 'admin')
-    and (team_id = my_team_id() or team_id is null)
+    and team_id = my_team_id()
   )
   with check (my_role() in ('owner', 'admin'));
+-- 审计 m25：以前 using 里还有「or team_id is null」，管理员知道 uid 就能把任何还没入队的人
+-- 拉进自己团队，进而读到对方之后写的全部记录。入队只走邀请码（join_team）。
 
 -- 档案字段守卫（2026-11-04 审计 C1）：
 -- 两条 update 策略只能约束「哪一行能改」，管不到「改了哪些列」。
@@ -285,6 +290,13 @@ begin
   end if;
   if target = auth.uid() then
     raise exception '不能把自己移出团队';
+  end if;
+  /* 审计 m12/m25：admin 不能移出 owner，也不能移出别的 admin；只有 owner 能移出 admin */
+  if exists (select 1 from profiles where id = target and role = 'owner') then
+    raise exception '不能移出 owner';
+  end if;
+  if op_role = 'admin' and exists (select 1 from profiles where id = target and role = 'admin') then
+    raise exception '只有 owner 能移出管理员';
   end if;
   update profiles set team_id = null where id = target and team_id = op_team;
   if not found then
@@ -383,7 +395,8 @@ begin
   if my_team_id() is null then
     raise exception '你还没有团队';
   end if;
-  c := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
+  -- 12 位十六进制（48 位）。以前 8 位只有 32 位，配合不限次数的 join_team 可以穷举（审计 m12）
+  c := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
   update teams set invite_code = c where id = my_team_id();
   return c;
 end;
@@ -394,6 +407,18 @@ returns text as $$
   select invite_code from teams where id = my_team_id();
 $$ language sql security definer stable set search_path = public;
 
+/* 输错邀请码的记录（审计 m12：以前不限次数，8 位码可穷举）。
+ * 只有 join_team（security definer）读写，API 角色无权直接访问。 */
+create table if not exists join_attempts (
+  user_id uuid not null,
+  at timestamptz not null default now()
+);
+create index if not exists join_attempts_user_at on join_attempts (user_id, at);
+alter table join_attempts enable row level security;
+revoke all on join_attempts from anon, authenticated;
+
+/* 输错不抛异常而是返回 null：抛异常会把这次失败记录一起回滚，限流就失效了。
+ * 前端（auth.js joinTeam）收到 null 时提示「邀请码不对」。 */
 create or replace function join_team(code text)
 returns uuid as $$
 declare tid uuid;
@@ -401,9 +426,15 @@ begin
   if code is null or length(trim(code)) = 0 then
     raise exception '请填邀请码';
   end if;
+  if (select count(*) from join_attempts
+      where user_id = auth.uid() and at > now() - interval '15 minutes') >= 10 then
+    raise exception '邀请码输错太多次，15 分钟后再试';
+  end if;
   select id into tid from teams where invite_code = upper(trim(code));
   if tid is null then
-    raise exception '邀请码不对，找管理员要一个';
+    delete from join_attempts where at < now() - interval '1 day';
+    insert into join_attempts(user_id) values (auth.uid());
+    return null;
   end if;
   update profiles set team_id = tid where id = auth.uid();
   if not found then

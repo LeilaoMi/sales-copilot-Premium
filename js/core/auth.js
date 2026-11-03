@@ -349,6 +349,8 @@ window.Auth = (function () {
   const resetInviteCode = () => rpc('reset_invite_code');
   async function joinTeam(code) {
     const tid = await rpc('join_team', { code: String(code || '').trim() });
+    /* 输错时数据库返回 null 而不是报错（这样才记得住失败次数，见 supabase.sql join_team） */
+    if (!tid) throw new Error('邀请码不对，找管理员要一个');
     await loadProfile(true);
     return tid;
   }

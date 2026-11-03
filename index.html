@@ -54,18 +54,18 @@
   </div>
 </header>
 
-<nav class="tabs" id="tabs">
-  <button class="tab active" data-view="dash">战情台</button>
-  <button class="tab" data-view="customers">客户库</button>
-  <button class="tab" data-view="deals">商机看板</button>
-  <button class="tab" data-view="followups">跟进日志</button>
-  <button class="tab" data-view="scripts">话术库</button>
-  <button class="tab" data-view="report">周报</button>
-  <button class="tab" data-view="ai">AI 助手</button>
+<nav class="tabs" id="tabs" role="tablist" aria-label="主导航">
+  <button class="tab active" role="tab" aria-selected="true" data-view="dash">战情台</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="customers">客户库</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="deals">商机看板</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="followups">跟进日志</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="scripts">话术库</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="report">周报</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="ai">AI 助手</button>
   <!-- 团队看板只对管理员显示：普通成员看到它只会是一片空白，徒增困惑。
        显隐由 ui.js 判断角色后决定。 -->
-  <button class="tab" data-view="team" id="tab-team" hidden>团队</button>
-  <button class="tab" data-view="settings">设置</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="team" id="tab-team" hidden>团队</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="settings">设置</button>
 </nav>
 
 <main id="main">

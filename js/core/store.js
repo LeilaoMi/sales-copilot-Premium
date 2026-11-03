@@ -1,6 +1,6 @@
 /* ============================================================
  * 销冠助手 · 数据层
- * 数据全部保存在浏览器本地（localStorage），无后端、无网络请求。
+ * 数据保存在浏览器本地（localStorage）。本文件不发网络请求；云同步在 sync.js / auth.js。
  * ============================================================ */
 window.Store = (function () {
 
@@ -75,7 +75,8 @@ window.Store = (function () {
     return v.toLocaleString('zh-CN');
   };
   const moneyFull = n => '¥' + (Number(n) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
-  /* 本月还剩几天（含今天）：回款预测与目标倒推都靠它判断「来不来得及」 */
+  /* 今天之后本月还剩几天（不含今天，月末当天为 0）：回款预测按「距今天数 ≤ 它」判断是否本月内。
+   * 给人看的「还剩几天」要 +1（含今天），见 views.js 与下面的 advice（审计 m6） */
   const daysLeftInMonth = () => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate();
@@ -173,7 +174,7 @@ window.Store = (function () {
       }
     });
 
-    /* 话术库升级：老版本只有 12 条，新版 46 条且带 tags（检索质量依赖 tags）。
+    /* 话术库升级：老版本只有 12 条，新版内置话术（现 48 条）带 tags（检索质量依赖 tags）。
      * 老用户升级后必须自动拿到新话术，否则他打开还是旧的，等于没升级。
      *
      * 判断依据是「新种子缺不缺」，不是版本号 —— 版本号会被
@@ -215,8 +216,13 @@ window.Store = (function () {
         }
       });
 
-      /* 第二步：旧版内置话术视为已被新版覆盖 → 移除 */
-      let keep = state.scripts.filter(x => !(x.builtin && !freshTitles[x.title]));
+      /* 第二步：旧版内置话术视为已被新版覆盖 → 留墓碑删除（审计 m4）。
+       * 以前直接 filter 掉，云端那条还在，同步又拉回来，再删，来回抖。 */
+      const nowTomb = Date.now();
+      state.scripts.forEach(x => {
+        if (x && x.builtin && !freshTitles[x.title] && !x.deleted) { x.deleted = true; x.updatedAt = nowTomb; }
+      });
+      let keep = state.scripts.slice();
 
       /* 第三步：补齐还缺的内置话术 */
       const have = {};
@@ -388,9 +394,17 @@ window.Store = (function () {
 
   function reset(keepScripts) {
     saveBlocked = false;      // 用户主动清空 = 明确同意覆盖（包括没能另存的损坏原文）
-    const s = keepScripts ? state.scripts : defaultScripts();
-    const prev = carrySettings();
     const now = Date.now();
+    /* 不保留话术时，用户自建的话术也要留墓碑，否则同步又拉回来（审计 m4） */
+    let s = state.scripts;
+    if (!keepScripts) {
+      const fresh = defaultScripts();
+      const ids = {};
+      fresh.forEach(x => { ids[x.id] = 1; });
+      s = fresh.concat((state.scripts || []).filter(x => x && !ids[x.id])
+        .map(x => (x.deleted ? x : Object.assign({}, x, { deleted: true, updatedAt: now }))));
+    }
+    const prev = carrySettings();
 
     /* 清空必须留墓碑，不能让记录凭空消失。
      *
@@ -467,11 +481,17 @@ window.Store = (function () {
     }
   }
   /* 物理清理：把墓碑记录真正删掉（本地「压缩数据」用，不同步给其他设备） */
+  /* 压缩数据（审计 m7）：只清 30 天前的墓碑。
+   * 以前全清，开着同步时云端的墓碑下次又拉回来，「压缩」等于没做；
+   * 刚删的墓碑也还没来得及传给别的设备。
+   * 配套：sync-core 合并与记录级拉取时，本地没有、云端是超过 30 天的墓碑，不再拉回。 */
+  const TOMB_TTL = 30 * 864e5;
   function purge() {
     let n = 0;
+    const cut = Date.now() - TOMB_TTL;
     SYNC_KEYS.forEach(k => {
       const before = state[k].length;
-      state[k] = state[k].filter(x => !x.deleted);
+      state[k] = state[k].filter(x => !x.deleted || (Number(x.updatedAt) || 0) > cut);
       n += before - state[k].length;
     });
     save();
@@ -532,17 +552,19 @@ window.Store = (function () {
     const mk = monthKey(now);
     const openDeals = list('deals').filter(d => d.stage !== 'won' && d.stage !== 'lost');
     const wonDeals = list('deals').filter(d => d.stage === 'won');
+    /* 赢单缺 closedAt 时 monthKey(undefined) 会落到「本月」（审计 m6）：没有成交日期的不计入任何月份 */
+    const closedMonth = d => (d.closedAt ? monthKey(d.closedAt) : '');
     const lostDeals = list('deals').filter(d => d.stage === 'lost');
     const closed = wonDeals.length + lostDeals.length;
 
-    const monthWon = wonDeals.filter(d => monthKey(d.closedAt) === mk);
+    const monthWon = wonDeals.filter(d => closedMonth(d) === mk);
     const revenue = sum(monthWon, d => d.amount);
     const target = Number(state.settings.monthlyTarget) || 0;
     const rate = target ? revenue / target : 0;
 
     // 上月同期
     const lastMk = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-    const lastRevenue = sum(wonDeals.filter(d => monthKey(d.closedAt) === lastMk), d => d.amount);
+    const lastRevenue = sum(wonDeals.filter(d => closedMonth(d) === lastMk), d => d.amount);
 
     // 漏斗（不含赢单，展示在谈阶段）
     const funnel = BOARD_STAGES.map(s => {
@@ -556,7 +578,7 @@ window.Store = (function () {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const k = monthKey(d);
-      const arr = wonDeals.filter(x => monthKey(x.closedAt) === k);
+      const arr = wonDeals.filter(x => closedMonth(x) === k);
       months.push({ key: k, label: monthLabel(d), value: sum(arr, x => x.amount), count: arr.length });
     }
 
@@ -645,8 +667,8 @@ window.Store = (function () {
     } else if (forecast >= gapAmount * 0.6) {
       verdict = 'tight';
       const short = gapAmount - forecast;
-      advice = `现有在谈单按赢率折算只能覆盖 ${moneyFull(short === gapAmount ? forecast : forecast)}，缺口约 ${moneyFull(short)}。`
-        + `本月剩 ${left} 天，还来得及补 ${needDeals || 1} 个能快速签的单，或者把某单的成交日往前推。`;
+      advice = `现有在谈单按赢率折算只能覆盖 ${moneyFull(forecast)}，缺口约 ${moneyFull(short)}。`
+        + `本月剩 ${left + 1} 天（含今天），还来得及补 ${needDeals || 1} 个能快速签的单，或者把某单的成交日往前推。`;
     } else {
       verdict = 'unlikely';
       const short = gapAmount - forecast;
@@ -764,7 +786,7 @@ window.Store = (function () {
   }
 
   /* ---------- 话术库 ----------
-   * 种子数据放在 playbook.js 里（46 条，带 tags 用于检索）。
+   * 种子数据放在 playbook.js 里（现 48 条，带 tags 用于检索）。
    * 这里只做委托 —— 话术库的重心是「检索」和「自己沉淀」，
    * 种子只是冷启动时别让它空着。 */
   function defaultScripts() {
@@ -779,6 +801,15 @@ window.Store = (function () {
    * 补缺失的新种子，但不覆盖他改过的任何一条。 */
   function seed(keepScripts) {
     const prev = state && Array.isArray(state.scripts) ? state.scripts : null;
+    /* 「载入示例」覆盖的是业务数据，被覆盖的真实记录要留墓碑（审计 m4）。
+     * 以前整个数组直接换掉，开着同步时真实数据下次又被拉回来，和示例混在一起。
+     * 旧的示例记录不留（它们不上云），已有的墓碑原样带上。 */
+    const seedTombs = {};
+    const tombNow = Date.now();
+    ['customers', 'deals', 'followups'].forEach(k => {
+      seedTombs[k] = ((state && state[k]) || []).filter(r => r && !r.demo)
+        .map(r => (r.deleted ? r : Object.assign({}, r, { deleted: true, updatedAt: tombNow })));
+    });
     const prevSettings = carrySettings();
     state = emptyState();
     /* 个人设置整份保留：「载入示例数据」换的是业务数据，
@@ -920,9 +951,14 @@ window.Store = (function () {
      * 「你改过的就是你的」—— 这条规则比任何版本号判断都可靠。 */
     [customers, dealObjs, followups].forEach(arr => arr.forEach(r => { r.demo = true; }));
 
-    state.customers = customers;
-    state.deals = dealObjs;
-    state.followups = followups;
+    const withTombs = (arr, k) => {
+      const ids = {};
+      arr.forEach(r => { ids[r.id] = 1; });
+      return arr.concat(seedTombs[k].filter(r => !ids[r.id]));
+    };
+    state.customers = withTombs(customers, 'customers');
+    state.deals = withTombs(dealObjs, 'deals');
+    state.followups = withTombs(followups, 'followups');
     migrate();
     save();
   }
@@ -931,7 +967,7 @@ window.Store = (function () {
     KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
     addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, isSafeId, safeRecord, sum, daysLeftInMonth,
-    load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, generation, purge, purgeDemo,
+    load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, generation, purge, purgeDemo, TOMB_TTL,
     shouldSeedDemo, markOnboarded,
     list, get, insert, update, remove, removeCustomer, setStage,
     stats, customerMeta, customerName, dealName,

@@ -37,3 +37,5 @@ Thumbs.db
 # 里面所有文件都是别处的副本，提交进去只会跟源文件抢着改。
 # 缓存规则 _headers 的源文件在 deploy/_headers，由构建脚本复制过去。
 public/
+
+__pycache__/

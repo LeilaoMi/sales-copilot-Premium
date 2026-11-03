@@ -106,12 +106,44 @@ window.AI = (function () {
   }
 
   /* 实际生效的地址和模型：选了预设就用预设的，自定义就用自己的 */
+  /* Azure OpenAI 和其他家不一样（审计 m13）：鉴权头是 api-key 不是 Bearer，地址必须带 api-version。
+   * 以前按通用写法发，Azure 永远 401/404。 */
+  const AZURE_API_VERSION = '2024-10-21';
+  function isAzure() {
+    const c = cfg();
+    return c.provider === 'azure' || /\.openai\.azure\.com/i.test(c.base || '');
+  }
   function endpoint() {
     const c = cfg();
     const p = PROVIDERS[c.provider] || PROVIDERS.deepseek;
-    const base = (c.base || p.base || '').replace(/\/$/, '');
+    let base = (c.base || p.base || '').replace(/\/$/, '');
+    if (isAzure()) {
+      const q = base.indexOf('?');
+      const query = q >= 0 ? base.slice(q) : '';
+      base = q >= 0 ? base.slice(0, q) : base;
+      const url = base.replace(/\/chat\/completions$/, '') + '/chat/completions' + query;
+      return /[?&]api-version=/.test(url) ? url : url + (query ? '&' : '?') + 'api-version=' + AZURE_API_VERSION;
+    }
     return base + '/chat/completions';
   }
+  function authHeaders(key) {
+    return isAzure() ? { 'api-key': key } : { 'Authorization': 'Bearer ' + key };
+  }
+  /* 带超时的 fetch（审计 m13）：以前没有超时，服务商卡住时界面一直「正在生成」，只能刷新页面 */
+  async function fetchT(url, opts, ms) {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), ms) : null;
+    try {
+      return await fetch(url, Object.assign({}, opts, ctl ? { signal: ctl.signal } : {}));
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw new Error('请求超时（' + Math.round(ms / 1000) + ' 秒没有响应），稍后再试或换个模型');
+      throw e;
+    } finally { if (timer) clearTimeout(timer); }
+  }
+  const ASK_TIMEOUT = 90000;
+  /* 陪练多轮对话只带最近若干轮（审计 m26：以前整段历史无上限地发，越练越慢、越贵，最后超上下文） */
+  const CHAT_MAX_MSGS = 24;
+  const CHAT_MAX_CHARS = 24000;
   function modelName() {
     const c = cfg();
     const p = PROVIDERS[c.provider] || PROVIDERS.deepseek;
@@ -286,19 +318,19 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     const model = modelName();
     if (!model) throw new Error('还没填模型名');
 
-    const resp = await fetch(url, {
+    const resp = await fetchT(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + c.key },
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders(c.key)),
       body: JSON.stringify({
         model: model,
         messages: [
           { role: 'system', content: '你是销冠助手内置的销售顾问，用中文回答，输出可直接复制使用。' },
           { role: 'user', content: prompt }
         ],
-        temperature: (opts && opts.temperature) || 0.7,
+        temperature: (opts && typeof opts.temperature === 'number') ? opts.temperature : 0.7,   // 审计 m26：|| 会把 0 吞掉
         stream: false
       })
-    });
+    }, ASK_TIMEOUT);
     if (!resp.ok) {
       let msg = 'HTTP ' + resp.status;
       try { const e = await resp.json(); msg = (e.error && e.error.message) || e.message || JSON.stringify(e); } catch (e) {}
@@ -325,19 +357,21 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     if (!model) throw new Error('还没填模型名');
 
     const o = opts || {};
+    let hist = (messages || []).slice(-CHAT_MAX_MSGS);
+    while (hist.length > 1 && hist.reduce((n, m) => n + String(m.content || '').length, 0) > CHAT_MAX_CHARS) hist = hist.slice(1);
     const msgs = [{ role: 'system', content: o.system || '你是销冠助手内置的销售顾问，用中文回答。' }]
-      .concat(messages || []);
+      .concat(hist);
 
-    const resp = await fetch(url, {
+    const resp = await fetchT(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + c.key },
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders(c.key)),
       body: JSON.stringify({
         model: model,
         messages: msgs,
         temperature: typeof o.temperature === 'number' ? o.temperature : 0.8,
         stream: false
       })
-    });
+    }, ASK_TIMEOUT);
     if (!resp.ok) {
       let msg = 'HTTP ' + resp.status;
       try { const e = await resp.json(); msg = (e.error && e.error.message) || e.message || JSON.stringify(e); } catch (e) {}
@@ -403,9 +437,9 @@ ${extra ? '\n补充要求：' + extra : ''}`;
      * 所以这里按场景分别讲人话。 */
     let resp;
     try {
-      resp = await fetch(base + '/models', {
-        headers: { 'Authorization': 'Bearer ' + c.key }
-      });
+      resp = await fetchT(base + '/models', {
+        headers: authHeaders(c.key)
+      }, 15000);
     } catch (e) {
       throw new Error(netFailReason(base, p));
     }
@@ -467,9 +501,9 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     for (const cand of cands) {
       if (cand === root) continue;
       try {
-        const r = await fetch(cand + '/models', {
+        const r = await fetchT(cand + '/models', {
           headers: { 'Authorization': 'Bearer ' + key }
-        });
+        }, 15000);
         /* 401 / 403 / 200 都算「这个地址是对的」：
          * 200 = 通了；401/403 = 路径对，只是我们的 Key 无效或没权限。
          * 只有 404 才是「这条路不存在」。 */
@@ -504,7 +538,7 @@ ${extra ? '\n补充要求：' + extra : ''}`;
     if (!key) throw new Error('还没配置 Tavily Key（设置 → AI 助手 → Tavily 联网情报）');
     let resp;
     try {
-      resp = await fetch('https://api.tavily.com/search', {
+      resp = await fetchT('https://api.tavily.com/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
         body: JSON.stringify({
@@ -512,7 +546,7 @@ ${extra ? '\n补充要求：' + extra : ''}`;
           max_results: Math.min(Math.max(maxResults || 5, 1), 10),
           search_depth: 'basic'
         })
-      });
+      }, 30000);
     } catch (e) {
       throw new Error('连不上 Tavily。检查网络；如果你在无痕模式或装了拦截插件，先放行 api.tavily.com');
     }

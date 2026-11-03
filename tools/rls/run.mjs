@@ -14,5 +14,14 @@ for (const t of ['profiles', 'sales-sync', 'records']) {
     if (!ok) { fail++; console.log(r.stdout + r.stderr); }
   }
 }
+/* 保活表是独立脚本 db/keepalive.sql（审计 m11），同样跑一次 + 两次 */
+const ka = path.join(here, '../../db/keepalive.sql');
+for (const files of [[ka], [ka, ka]]) {
+  const label = 'keepalive' + (files.length > 1 ? '（脚本执行两次）' : '');
+  const r = spawnSync(process.execPath, [path.join(here, 'keepalive.test.mjs'), ...files], { encoding: 'utf8' });
+  const ok = r.status === 0;
+  console.log((ok ? 'PASS ' : 'FAIL ') + label);
+  if (!ok) { fail++; console.log(r.stdout + r.stderr); }
+}
 console.log(fail ? `RLS FAILURES: ${fail}` : 'ALL RLS TESTS PASSED');
 process.exit(fail ? 1 : 0);

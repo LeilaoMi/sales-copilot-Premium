@@ -246,6 +246,24 @@ function request(port, method, p, body, headers) {
   }
   fs.chmodSync(path.join(ro, 'data'), 0o755);
   fs.rmSync(ro, { recursive: true, force: true });
+
+  /* ========== m8 多人模式：GET 不占空间名额；不再接受 ?token= ========== */
+  section('m8 空间名额与令牌');
+  {
+    const p4 = port + 5;
+    const c4 = spawn(process.execPath, [path.join(tmp, 'server/server.js')], {
+      env: Object.assign({}, process.env, { PORT: String(p4), SYNC_TOKEN: '', MAX_SPACES: '2' }), stdio: 'ignore'
+    });
+    for (let i = 0; i < 50; i++) { const r = await request(p4, 'GET', '/api/health'); if (r.status === 200) break; await new Promise(rs => setTimeout(rs, 100)); }
+    for (let i = 0; i < 5; i++) await request(p4, 'GET', '/api/sync', null, { 'X-Sync-Token': 'probe-token-' + i + '-xxxxxxxx' });
+    const h4 = JSON.parse((await request(p4, 'GET', '/api/health')).body);
+    check('5 次 GET 陌生令牌不占名额（spaces=' + h4.spaces + '）', h4.spaces === 0);
+    const put = await request(p4, 'PUT', '/api/sync', JSON.stringify({ data: { customers: [] } }), { 'X-Sync-Token': 'real-token-aaaaaaaaaaaa', 'Content-Type': 'application/json' });
+    check('名额没被刷满，真实推送成功', put.status === 200);
+    const q = await request(p4, 'GET', '/api/sync?token=real-token-aaaaaaaaaaaa');
+    check('?token= 不再被接受', q.status === 401);
+    c4.kill();
+  }
   fs.rmSync(tmp, { recursive: true, force: true });
 
   if (fail && stderr) console.log('\n--- server stderr ---\n' + stderr);

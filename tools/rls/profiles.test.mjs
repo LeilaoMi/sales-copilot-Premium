@@ -47,7 +47,27 @@ const cases = [
  ['admin 移出成员（admin_remove_member）', U.adm, `select admin_remove_member($1)`, [U.mem], 'OK'],
  ['成员用邀请码换到 B 队（join_team）', U.mem, `select join_team('BBBBBBBB')`, [], 'OK'],
  ['成员 leave_team', U.mem, `select leave_team()`, [], 'OK'],
+ // 审计 m12 / m25
+ ['admin 移出 owner', U.adm, `select admin_remove_member($1)`, [U.owner], 'ERR'],
+ ['admin 把未入队的人拉进本队', U.adm, `update profiles set team_id=$1 where id=$2`, [tA,U.out], 'OK rows=0'],
 ];
 let fail=0;
 for (const [name,uid,q,p,exp] of cases){ const r=await as(uid,q,p); const ok=r.startsWith(exp); if(!ok) fail++; console.log((ok?'PASS ':'FAIL ')+name+' → '+r); }
+// 邀请码：新码 12 位；输错 10 次后，正确的码也要等 15 分钟（审计 m12）
+{
+  await db.exec(`set role authenticated; select set_config('request.jwt.claim.sub','${U.owner}',false);`);
+  let code = '';
+  try { code = (await db.query(`select reset_invite_code() c`)).rows[0].c; } catch (e) { code = 'ERR ' + e.message; }
+  await db.exec('reset role');
+  const ok1 = /^[0-9A-F]{12}$/.test(code); if (!ok1) fail++;
+  console.log((ok1 ? 'PASS ' : 'FAIL ') + '重置后的邀请码是 12 位 → ' + code.length);
+  let last = '';
+  for (let i = 0; i < 10; i++) last = await as(U.out, `select join_team('ZZZZZZZZ${i}')`, []);
+  const blocked = await as(U.out, `select join_team($1)`, [code]);
+  const ok2 = blocked.startsWith('ERR') && /太多次/.test(blocked); if (!ok2) fail++;
+  console.log((ok2 ? 'PASS ' : 'FAIL ') + '输错 10 次后正确码也被限流 → ' + blocked);
+  const team = (await db.query(`select team_id from profiles where id=$1`, [U.out])).rows[0].team_id;
+  const ok3 = team === null; if (!ok3) fail++;
+  console.log((ok3 ? 'PASS ' : 'FAIL ') + '限流期间没有入队');
+}
 console.log(fail? `${fail} FAILED`:'ALL PASS'); process.exit(fail?1:0);

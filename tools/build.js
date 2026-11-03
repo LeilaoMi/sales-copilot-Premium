@@ -101,7 +101,7 @@ if (process.argv.includes('--pages')) {
   if (fs.existsSync(swSrc)) {
     let sw = fs.readFileSync(swSrc, 'utf8');
     const statics = ['./', './index.html', './assets/css/styles.css',
-                     './manifest.json', './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/apple-touch-icon.png'];
+                     './manifest.json', './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/icon-maskable-512.png', './assets/icons/apple-touch-icon.png'];
     const jsFiles = Array.from(referenced)
       .filter(f => /\.js$/.test(f) && !/^data:/i.test(f))
       .map(f => './' + f);
@@ -130,7 +130,9 @@ if (process.argv.includes('--pages')) {
   })(outDir, '');
 
   console.log(`已生成 ${outDir}：${n + 1} 个文件`);
-  console.log('  包含：' + [...referenced].join(', ') + ', manifest.json');
+  /* 只列真实文件：去掉内联 data: URI，manifest.json 已在 referenced 里时不再重复追加（审计 m16） */
+  const shown = [...new Set([...referenced].filter(f => !/^data:/i.test(f)).concat('manifest.json'))];
+  console.log('  包含：' + shown.join(', '));
   if (leaked.length) {
     console.error('\n✗ 部署目录里出现了不该有的数据文件：' + leaked.join(', '));
     console.error('  这些文件在静态托管上是公开可下载的，必须处理掉再部署。');

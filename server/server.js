@@ -11,7 +11,7 @@
  *   PUT  /api/sync  → { revision, data }      推送本地快照（服务端做 LWW 合并后返回）
  *   GET  /api/health → { ok, revision, size }
  *
- * 存储：./data/sync-store.json（不可写时退化为内存，并打印警告）
+ * 存储：./data/store-<空间哈希>.json，每个令牌一个文件；备份在 ./data/backups/（不可写时退化为内存，并打印警告）
  * ============================================================ */
 'use strict';
 const http = require('http');
@@ -26,7 +26,6 @@ const CORE = require('../js/core/sync-core');
 const PORT = process.env.PORT || 8080;
 const ROOT = require('path').join(__dirname, '..'); // server/ -> 项目根，前端静态文件都在那
 const DATA_DIR = path.join(ROOT, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'sync-store.json');
 const TOKEN_FILE = path.join(DATA_DIR, 'token.txt');
 const KEYS = CORE.KEYS;
 const BACKUP_KEEP = Number(process.env.BACKUP_KEEP || 10);   // 每个空间保留的历史版本份数
@@ -97,7 +96,9 @@ const hash = CORE.spaceKey;   // 令牌 → 12 位空间名，令牌本身不落
 
 function spaceFile(h) { return path.join(DATA_DIR, 'store-' + h + '.json'); }
 
-function getSpace(token) {
+/* create=false 时（GET 拉取）只读不占位：以前 GET 也会占一个 MAX_SPACES 名额，
+ * 随便拿些假令牌 GET 一遍就能把名额刷满到重启（审计 m8）。不存在返回 undefined。 */
+function getSpace(token, create) {
   const h = hash(token);
   if (spaces.has(h)) return spaces.get(h);
   let sp = { revision: 0, data: null };
@@ -107,6 +108,7 @@ function getSpace(token) {
     const p = JSON.parse(raw);
     if (p && typeof p === 'object') { sp = p; existed = true; console.log('[' + h + '] 已加载历史数据，revision=' + sp.revision); }
   } catch (e) { /* 首次使用，正常 */ }
+  if (!existed && create === false) return undefined;
   // 新空间要占位，先查是否超额（公开部署时防止被无限刷空间）
   if (!existed && spaces.size >= MAX_SPACES) return null;
   spaces.set(h, sp);
@@ -216,11 +218,11 @@ function send(res, code, obj, headers) {
   res.end(body);
 }
 
-/* 取令牌，按顺序尝试三种携带方式：
+/* 取令牌，按顺序尝试两种携带方式：
  *   1. Authorization: Bearer xxx        标准方式，首选
  *   2. X-Sync-Token: xxx                备用头（有些反向代理会吃掉 Authorization）
- *   3. ?token=xxx                       查询参数，兼容性最好
- * 为什么需要后两种：实测部分云平台网关（如 CloudStudio Gateway）会剥离 Authorization 头，
+ * 以前还接受 ?token=xxx，会原样进访问日志，已去掉（审计 m8）。
+ * 为什么需要备用头：实测部分云平台网关（如 CloudStudio Gateway）会剥离 Authorization 头，
  * 表现为本地联调一切正常、一上线就全部 401，且很难排查。
  */
 function tokenOf(req) { return CORE.tokenOf(req); }
@@ -276,10 +278,9 @@ const server = http.createServer((req, res) => {
       spaces: spaces.size,
       authSeen: !!tk,
       authVia: tk ? (req.headers['x-sync-token'] ? 'header'
-        : (req.headers.authorization ? 'authorization'
-          : (new URL(req.url, 'http://x').searchParams.get('token') ? 'query' : '?')))
+        : (req.headers.authorization ? 'authorization' : '?'))
         : 'none',
-      accepts: ['Authorization: Bearer', 'X-Sync-Token', '?token='],
+      accepts: ['Authorization: Bearer', 'X-Sync-Token'],
       time: new Date().toISOString()
     });
   }
@@ -310,7 +311,8 @@ const server = http.createServer((req, res) => {
     if (!authOk(req)) return send(res, 401, { error: '令牌无效' });
     const tk = tokenOf(req);
     const h = hash(tk);
-    const store = getSpace(tk);
+    const store = getSpace(tk, req.method !== 'GET');
+    if (store === undefined) return send(res, 404, { error: '云端暂无数据，等待第一次推送' });
     if (!store) return send(res, 503, { error: '服务端空间数已达上限，请联系管理员或自行部署' });
 
     if (req.method === 'GET') {

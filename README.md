@@ -96,7 +96,7 @@
 node tools/build.js
 ```
 
-生成 `销冠助手-单文件版.html`（约 519 KB），**落在仓库的上一级目录**（构建脚本刻意不把产物写进仓库）。双击即用，可丢网盘发微信存手机。
+生成 `销冠助手-单文件版.html`（约 540 KB），**落在仓库的上一级目录**（构建脚本刻意不把产物写进仓库）。双击即用，可丢网盘发微信存手机。
 
 单文件版的取舍：没有实战军火库（`file://` 拉不到 `kb/knowledge.json`），不注册 Service Worker（因而无离线缓存与 PWA 安装），不发系统通知。**其余功能与网页版完全一致。**
 
@@ -226,7 +226,7 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 ### 5.9 换机与备份
 
-设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入以导入内容为准；数据码不含 API Key 和同步凭据，备份 JSON 含）、载入示例、清空全部业务数据、压缩数据（清掉本地删除墓碑）。
+设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入以导入内容为准；数据码不含 API Key 和同步凭据，备份 JSON 含）、载入示例、清空全部业务数据、压缩数据（清掉 30 天前的删除记录；更近的要留着同步给其他设备）。
 
 ### 5.10 多人、团队与同步
 
@@ -243,7 +243,7 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 **登录门**：Supabase 地址与 key 出厂内置（`auth.js` 的 `DEFAULT_CLOUD`，用的是 publishable key，本来就会随前端 JS 公开）。新设备首次打开自动弹全屏登录页——登录即自动切到 `cloud` 模式并拉取数据，手机电脑同一份；想纯本地用点「先逛逛」，此后不再自动弹（下次登录成功会清掉该标记）。本机残留的示例数据在首次同步后自动清理（`Store.purgeDemo`），不会混进真实数据。
 
-**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 8 位邀请码发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。`team_scripts`（团队共享话术）表已建好，但前端**尚未接入**，目前话术库仍是个人的。六张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`。
+**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 12 位邀请码（旧的 8 位码继续有效；输错 10 次锁 15 分钟）发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。`team_scripts`（团队共享话术）表已建好，但前端**尚未接入**，目前话术库仍是个人的。七张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`，以及只供邀请码限流用的 `join_attempts`。
 
 ---
 
@@ -296,12 +296,12 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 sales-copilot-Premium/
 ├── index.html              唯一页面 + 页签 + 脚本加载顺序（顺序有依赖，注释写明了为什么）
 ├── manifest.json           PWA 清单
-├── sw.js                   Service Worker，缓存桶 sales-copilot-v3
+├── sw.js                   Service Worker，缓存桶 sales-copilot-v5
 ├── vercel.json             Vercel 缓存与项目配置（理由见 DEPLOY.md 第 7 节）
 ├── wrangler.toml           Cloudflare Pages 项目配置（name=sales-copilot-premium，输出 public）
 ├── assets/
 │   ├── css/styles.css      全部样式（约 700 行，CSS 变量驱动）
-│   └── icons/              192 / 512 / apple-touch 三张图标
+│   └── icons/              192 / 512 / 512 maskable / apple-touch 四张图标
 ├── js/
 │   ├── core/               store.js 数据层 · sync.js 四种同步模式与本地合并 · auth.js 登录与账号通道
 │   │                       team.js 团队聚合（只读，内存快照）
@@ -311,13 +311,16 @@ sales-copilot-Premium/
 │   │                       sparring 陪练 · ai AI 接入 · charts 手写 SVG 图表 · notify 提醒
 │   └── ui/                 views.js 渲染 · ui.js 事件与动作
 ├── server/server.js        零依赖同步服务 + 静态站点 + 快照备份
-├── db/supabase.sql         6 张表 + RLS 策略 + security definer 函数（幂等）
+├── db/supabase.sql         业务表 + RLS 策略 + security definer 函数（幂等）
+├── db/keepalive.sql        保活表 keepalive_logs（独立于业务，幂等）
+├── db/new_table_template.sql 新增表时照抄的 RLS 模板
+├── db/migrations/          已有库的增量迁移（按日期命名，幂等）
 ├── kb/knowledge.json       军火库 78 条（tools/gen-kb-seed.py 生成）
-├── tools/                  build.js 构建 · test.js 回归 · gen-kb-seed.py 军火库生成
+├── tools/                  build.js 构建 · test*.js 回归 · rls/ 数据库权限回归 · gen-kb-seed.py 军火库生成
 │                           kb-extra-1/2/3.json 人工补充条目
 ├── deploy/                 Dockerfile · systemd unit · _headers · edgeone/
 ├── docs/DEPLOY.md          上线手册（含验证清单与排错表）
-├── .github/workflows/      supabase-keepalive.yml
+├── .github/workflows/      ci.yml 测试 · supabase-keepalive.yml 保活
 ├── public/                 构建产物，已忽略
 └── data/                   server 本地快照，已忽略
 ```
@@ -376,6 +379,7 @@ node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本�
 node tools/test-quicklog.js   # 一句话录入：跟进方式、中文数字、意图词、客户匹配、月底/下周
 node tools/test-digest.js     # 会话情报：等客户反馈、字段标签、签字误报、日期不算数量
 node tools/test-health.js     # 健康度缓存：拉下旧记录、删除后及时重算
+node tools/test-minor.js      # Minor 批：墓碑、成交月份、令牌、Azure/超时、按商机算健康度等
 node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
 node tools/test-edgeone.mjs   # EdgeOne 适配器：设备满了无损收拢、空间数上限
 (cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres

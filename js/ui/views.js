@@ -65,12 +65,12 @@ window.Views = (function () {
 
     /* 漏斗 */
     const funnelItems = st.funnel.map(f => ({ name: f.name, value: f.count, color: f.color, amount: f.amount }));
-    const monthWonCount = S.state.deals.filter(d => d.stage === 'won' && S.monthKey(d.closedAt) === st.mk).length;
+    const monthWonCount = S.list('deals').filter(d => d.stage === 'won' && d.closedAt && S.monthKey(d.closedAt) === st.mk).length;   // 审计 m6：不算已删除的、不把缺成交日的算进本月
 
     /* 本月目标卡片 */
     const gaptxt = st.rate >= 1
       ? `已超额 ${S.moneyFull(st.revenue - st.target)}`
-      : `还差 ${S.moneyFull(st.target - st.revenue)}，剩 ${daysLeftInMonth()} 天`;
+      : `还差 ${S.moneyFull(st.target - st.revenue)}，剩 ${daysLeftInMonth() + 1} 天`;
 
     return `
     ${morningBrief()}
@@ -1164,7 +1164,7 @@ window.Views = (function () {
         </p>
         <div class="field"><label>有邀请码？填进来加入团队</label>
           <div style="display:flex;gap:6px">
-            <input id="invite-input" placeholder="8 位邀请码" style="flex:1;text-transform:uppercase">
+            <input id="invite-input" placeholder="邀请码" style="flex:1;text-transform:uppercase">
             <button class="btn btn-primary" data-action="join-team">加入</button>
           </div></div>
         <div class="hint">邀请码找你们的管理员要（在他的「账号与团队」卡片里）。

@@ -48,7 +48,14 @@ sync/<令牌空间>/<设备ID>.json     ← 每台设备只写自己这一个文
 
 ### 1. 准备这个目录
 
-把这个 `deploy/edgeone` 目录**整个拷贝**成一个新项目（比如叫 `sales-copilot-sync`）。
+**先在仓库里**跑一次准备脚本（它要读仓库的 `js/core/sync-core.js`，拷出去以后就找不到了，审计 m29）：
+
+```bash
+node deploy/edgeone/prepare.js
+```
+
+看到 `✓ 已生成 cloud-functions/_shared/sync-core.js`（或「已是最新」）后，
+再把这个 `deploy/edgeone` 目录**整个拷贝**成一个新项目（比如叫 `sales-copilot-sync`）。
 它就是一个最小的 EdgeOne 项目骨架：
 
 ```
@@ -63,14 +70,9 @@ sales-copilot-sync/
         └── health.js           ← 线上路由 /api/health
 ```
 
-然后跑一次准备脚本：
-
-```bash
-node prepare.js
-```
-
-看到 `✓ 已生成 cloud-functions/_shared/sync-core.js` 就成了。
-**每次升级销冠助手之后，都要重新跑一次这个脚本**再部署，否则新版本的合并逻辑不会生效。
+**每次升级销冠助手之后，都要先在仓库里重新跑一次 `node deploy/edgeone/prepare.js`，再把生成的
+`cloud-functions/_shared/sync-core.js` 覆盖到你拷出去的项目**，否则新版本的合并逻辑不会生效。
+（仓库里那份生成物已随代码提交，CI 会用 `--check` 确认它是最新的。）
 
 > 这个脚本是把主项目的 `sync-core.js`（合并算法）复制过来。
 > 之所以不在 EdgeOne 里直接引用上层目录的文件：EdgeOne 构建时只保证
@@ -155,7 +157,7 @@ https://你的域名/api/health
 | | 本地 `node server.js` | EdgeOne 本适配器 |
 |---|---|---|
 | 接口 | `GET /api/sync`、`PUT /api/sync` | 完全相同 |
-| 鉴权 | `X-Sync-Token` / `Bearer` / `?token=` | 完全相同 |
+| 鉴权 | `X-Sync-Token` / `Bearer`（不接受 `?token=`，会进访问日志） | 完全相同 |
 | 合并算法 | `sync-core.js` | 同一个文件生成的副本 |
 | 存储 | 本地 `data/*.json` | Blob |
 | 并发安全 | 单进程，天然安全 | 每台设备独立文件 |
@@ -176,7 +178,7 @@ https://你的域名/api/health
 | `503 空间数已达上限` | 多人模式空间数到了 `MAX_SPACES`，调大或清理 Blob 里不用的 `sync/<空间>/` |
 | 同步成功但另一台看不到 | 先访问 `/api/health` 带上 `X-Sync-Token` 看 `devices` 是不是 ≥2。只有 1 说明第二台根本没推上来 |
 | 数据对不上 / 少了几条 | 确认两台设备跑的是同一版本的销冠助手，然后各点一次「立即同步」让它收敛 |
-| 改了 `sync-core.js` 没生效 | 忘了跑 `node prepare.js` |
+| 改了 `sync-core.js` 没生效 | 忘了在仓库里跑 `node deploy/edgeone/prepare.js` 并把生成物覆盖过去 |
 
 ---
 
