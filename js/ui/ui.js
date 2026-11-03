@@ -22,12 +22,36 @@
   let pendingDebrief = null;
 
   /* ---------- Toast ---------- */
-  function toast(msg, type) {
+  function toast(msg, type, ms) {
     const el = document.createElement('div');
     el.className = 'toast ' + (type || '');
     el.textContent = msg;
     $('#toasts').appendChild(el);
-    setTimeout(() => el.remove(), 2400);
+    setTimeout(() => el.remove(), ms || 2400);
+  }
+
+  /* 存储层的事件（2026-11-04 审计 M9 / M10 / M11）：以前写满、损坏都一声不吭。 */
+  let lastSaveErrToast = 0;
+  function onStoreEvent(type, info) {
+    if (type === 'corrupt') {
+      toast(info.backupKey
+        ? '本机数据读取失败，原数据已另存（' + info.backupKey + '），当前为空库。开了同步的话，同步一次即可找回。'
+        : '本机数据读取失败，空间不足无法另存，已暂停写入以保护原数据。请先开同步找回，或在设置页导入备份。',
+        'err', 10000);
+    } else if (type === 'save-error') {
+      const now = Date.now();
+      if (now - lastSaveErrToast < 30000) return;   // 连续输入时别刷屏
+      lastSaveErrToast = now;
+      toast('保存失败：浏览器存储空间不足，刚才的改动刷新后会丢失。请尽快在设置页导出备份。', 'err', 8000);
+    } else if (type === 'save-ok') {
+      toast('本机存储已恢复正常', 'ok');
+    } else if (type === 'external') {
+      /* 别的标签页改了数据：重绘当前页，免得在旧数据上继续改 */
+      render();
+      if (window.Sync) renderSyncStatus();
+    } else if (type === 'persist') {
+      if (view === 'settings') render();
+    }
   }
 
   /* ---------- 模态 ---------- */
@@ -2037,6 +2061,7 @@
 
   function init() {
     keepTabsUnderTopbar();
+    if (S.on) S.on(onStoreEvent);    // 必须在 load 之前订阅，否则启动时的「数据损坏」提示收不到
     S.load();
     /* 账号初始化必须在 render 之前：登录态决定设置页显示哪一块。
      * 没登录时这里全是空操作，不会发任何请求，也不会弹出任何东西。 */

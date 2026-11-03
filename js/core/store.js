@@ -106,6 +106,22 @@ window.Store = (function () {
   const SYNC_KEYS = ['customers', 'deals', 'followups', 'scripts'];
   let persistent = true;
 
+  /* 存储事件（2026-11-04 审计 M9 / M10 / M11）。界面层订阅后自己决定怎么提示：
+   *   corrupt      本机数据解析失败，原文已另存（info.backupKey）或另存也失败（info.backupKey 为空）
+   *   save-error   写入失败（多半是空间满了），本次改动只在内存里
+   *   save-ok      写入失败之后又恢复了
+   *   external     别的标签页改了数据，state 已重新载入，需要重绘
+   *   persist      持久化存储申请的结果（info.granted） */
+  const listeners = [];
+  function on(fn) { if (typeof fn === 'function') listeners.push(fn); }
+  function emit(type, info) {
+    listeners.forEach(fn => { try { fn(type, info || {}); } catch (e) { /* 订阅方出错不影响存储 */ } });
+  }
+  let corrupt = null;          // { backupKey, at }：本次启动发现的损坏
+  let saveBlocked = false;     // 损坏原文没能另存时，宁可不写也不覆盖它
+  let saveFailed = false;
+  let persistGranted = null;   // navigator.storage.persist() 的结果：true / false / null(不支持或未申请)
+
   /* 数据迁移：补齐 updatedAt（同步依赖它做冲突判定），老数据平滑升级 */
   function migrate() {
     const now = Date.now();
@@ -200,23 +216,61 @@ window.Store = (function () {
   let freshInstall = false;
 
   function load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); }
+    catch (e) { persistent = false; }          // 隐私模式等：localStorage 整个不可用
+    if (raw) {
+      try {
         const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
         state = Object.assign(emptyState(), parsed);
         state.settings = Object.assign(emptyState().settings, parsed.settings || {});
         freshInstall = false;
         migrate();
+        requestPersist();
+        return;
+      } catch (e) {
+        /* 解析失败（2026-11-04 审计 M9）。以前这里直接 emptyState() + save()，
+         * 把原文——可能只是截断、手工能修——覆盖掉，还当成新安装灌示例。
+         * 现在：原文先另存一份；另存不了就干脆不写，绝不覆盖它。 */
+        const backupKey = KEY + '.corrupt.' + Date.now();
+        let saved = false;
+        try { localStorage.setItem(backupKey, raw); saved = true; } catch (e2) { /* 多半是空间满了 */ }
+        corrupt = { backupKey: saved ? backupKey : '', at: Date.now() };
+        saveBlocked = !saved;
+        state = emptyState();
+        state.scripts = defaultScripts();
+        freshInstall = false;                   // 不是新用户，不灌示例
+        migrate();
+        save();
+        emit('corrupt', corrupt);
         return;
       }
-    } catch (e) { persistent = false; }
+    }
     state = emptyState();
     state.scripts = defaultScripts();
     freshInstall = true;
     migrate();
     save();
+    requestPersist();
   }
+
+  /* 申请持久化存储（2026-11-04 审计 M11）。
+   * 不申请的话，浏览器空间紧张时可以静默清掉本站数据；
+   * Safari 对没加到主屏幕的站点还有「7 天没打开就清脚本存储」的策略。
+   * 申请不一定批（Chrome 看站点互动程度，Safari 基本只对主屏幕应用批），结果给设置页显示。 */
+  function requestPersist() {
+    try {
+      const st = typeof navigator !== 'undefined' && navigator.storage;
+      if (!st || typeof st.persist !== 'function') return;
+      const ask = typeof st.persisted === 'function' ? st.persisted() : Promise.resolve(false);
+      Promise.resolve(ask)
+        .then(already => (already ? true : st.persist()))
+        .then(granted => { persistGranted = !!granted; emit('persist', { granted: persistGranted }); })
+        .catch(() => { /* 不支持就算了 */ });
+    } catch (e) { /* 同上 */ }
+  }
+
   /* 有没有任何业务数据（话术库不算 —— 它每次全新安装都会自带种子，
    * 拿它当「这人用过」的证据会永远为真，示例就再也不会出现了）。 */
   function hasBusinessData() {
@@ -253,9 +307,42 @@ window.Store = (function () {
     state.settings.updatedAt = Date.now();
     save();
   }
+  /* 自己刚写进去的那份。storage 事件只在「别的」标签页触发，
+   * 这里留一份是为了在极少数浏览器自己也收到事件时不白白重载一次。 */
+  let lastWritten = null;
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); }
-    catch (e) { persistent = false; }
+    if (saveBlocked) return;
+    try {
+      const txt = JSON.stringify(state);
+      localStorage.setItem(KEY, txt);
+      lastWritten = txt;
+      persistent = true;
+      if (saveFailed) { saveFailed = false; emit('save-ok'); }
+    } catch (e) {
+      /* 以前只把 persistent 置 false，界面上一声不吭（审计 M9）。 */
+      persistent = false;
+      saveFailed = true;
+      emit('save-error', { message: e && e.message });
+    }
+  }
+
+  /* 多标签页（2026-11-04 审计 M10）。
+   * 每个标签页都是「整份 state 写回 localStorage」，以前互不知情：
+   * 标签页 A 加了客户，标签页 B 还拿着旧 state，B 随便改一下就把 A 的那条抹掉。
+   * 现在别的标签页一写，这里立即用新值重载 state 并通知界面重绘。
+   * 每次修改都是同步写盘的，所以本页内存里不会有「没来得及写」的改动被重载冲掉。 */
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', e => {
+      if (!e || e.key !== KEY || e.newValue == null || e.newValue === lastWritten) return;
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (!parsed || typeof parsed !== 'object') return;
+        state = Object.assign(emptyState(), parsed);
+        state.settings = Object.assign(emptyState().settings, parsed.settings || {});
+        migrate();
+        emit('external');
+      } catch (err) { /* 别的页写了坏数据：不跟着坏，下次本页写入时覆盖回来 */ }
+    });
   }
   /* 清空业务数据时要活下来的东西：个人设置。
    *
@@ -271,6 +358,7 @@ window.Store = (function () {
   }
 
   function reset(keepScripts) {
+    saveBlocked = false;      // 用户主动清空 = 明确同意覆盖（包括没能另存的损坏原文）
     const s = keepScripts ? state.scripts : defaultScripts();
     const prev = carrySettings();
     const now = Date.now();
@@ -301,6 +389,7 @@ window.Store = (function () {
     save();
   }
   const isPersistent = () => persistent;
+  const storageInfo = () => ({ persistent, saveFailed, saveBlocked, corrupt, persistGranted });
 
   /* 全局版本号：所有记录中最大的 updatedAt，用于快速判断是否变化 */
   const revision = () => {
@@ -596,6 +685,7 @@ window.Store = (function () {
     SYNC_KEYS.forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
     const bad = SYNC_KEYS.reduce((n, k) => n + state[k].filter(r => !safeRecord(r)).length, 0);
     if (bad) { load(); throw new Error('文件里有 ' + bad + ' 条记录的 id 含非法字符，已取消导入'); }
+    saveBlocked = false;      // 用户主动导入 = 明确同意覆盖（包括没能另存的损坏原文）
     migrate();
     save();
   }
@@ -777,7 +867,7 @@ window.Store = (function () {
     KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
     addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, isSafeId, safeRecord, sum, daysLeftInMonth,
-    load, save, reset, seed, isPersistent, migrate, revision, purge, purgeDemo,
+    load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, purge, purgeDemo,
     shouldSeedDemo, markOnboarded,
     list, get, insert, update, remove, removeCustomer, setStage,
     stats, customerMeta, customerName, dealName,

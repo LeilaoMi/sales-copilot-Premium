@@ -1250,7 +1250,13 @@ window.Views = (function () {
       <div class="card">
         <div class="card-head"><div class="card-title">数据管理</div></div>
         <p class="small muted" style="margin-top:0">
-          数据保存在本机浏览器（localStorage）：${S.isPersistent() ? '<span class="up">可持久化</span>' : '<span class="down">当前环境不可用，刷新会丢失，请及时导出备份</span>'}。
+          数据保存在本机浏览器（localStorage）：${S.isPersistent() ? '<span class="up">可持久化</span>' : '<span class="down">当前环境不可用或空间已满，刷新会丢失，请及时导出备份</span>'}${(() => {
+            /* 持久化存储申请结果（审计 M11）：没批的话浏览器可能清理本站数据，Safari 未加到主屏幕时尤其如此 */
+            const g = S.storageInfo ? S.storageInfo().persistGranted : null;
+            if (g === true) return '；<span class="up">已获浏览器长期保存授权</span>';
+            if (g === false) return '；<span class="down">浏览器未授予长期保存，空间紧张或长期不打开时可能被清理（Safari 请添加到主屏幕），建议开启同步或定期导出</span>';
+            return '';
+          })()}。
           换电脑/换浏览器请先导出 JSON 再导入。
         </p>
         <div style="display:flex;flex-wrap:wrap;gap:8px">

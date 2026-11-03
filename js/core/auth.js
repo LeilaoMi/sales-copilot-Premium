@@ -179,7 +179,11 @@ window.Auth = (function () {
   }
 
   async function refresh() {
-    if (!session || !session.refresh_token) throw new Error('没有可刷新的会话');
+    if (!session || !session.refresh_token) {
+      const err = new Error('没有可刷新的会话');
+      err.status = 401;                          // 没有 refresh_token 就是没法续，按被拒处理
+      throw err;
+    }
     if (refreshing) return refreshing;
     refreshing = (async () => {
       try {
@@ -201,11 +205,29 @@ window.Auth = (function () {
     return refreshing;
   }
 
+  /* 刷新失败是不是「服务端明确拒绝了这个会话」（2026-11-04 审计 M8）。
+   * 以前任何失败都清会话：PWA 离线超过 1 小时再打开，首次同步一刷新失败就被登出，
+   * 和「断网可用」自相矛盾。现在只有 400/401/403（refresh_token 失效、被吊销）才清；
+   * 断网、超时、5xx 都保留会话，下次联网再试。 */
+  function rejected(e) {
+    return !!e && (e.status === 400 || e.status === 401 || e.status === 403);
+  }
+  function offlineError(e) {
+    const err = new Error('网络不可用，已保留登录，联网后会自动重试');
+    err.offline = true;
+    err.cause = e;
+    return err;
+  }
+
   /* 带自动续期的请求。token 快过期就先刷一次再发。 */
   async function api(path, opts) {
     if (!isOn()) throw new Error('未登录');
     if (isExpired()) {
-      try { await refresh(); } catch (e) { saveSession(null); throw new Error('登录已过期，请重新登录'); }
+      try { await refresh(); } catch (e) {
+        if (!rejected(e)) throw offlineError(e);
+        saveSession(null);
+        throw new Error('登录已过期，请重新登录');
+      }
     }
     const o = Object.assign({}, opts, {
       headers: Object.assign(headers(true), (opts && opts.headers) || {})
@@ -215,13 +237,13 @@ window.Auth = (function () {
     } catch (e) {
       /* 401 先尝试刷新一次再重试，还不行才算真的掉线 */
       if (e.status === 401) {
-        try {
-          await refresh();
-          return await call(path, Object.assign({}, o, { headers: headers(true) }));
-        } catch (e2) {
+        try { await refresh(); } catch (e2) {
+          if (!rejected(e2)) throw offlineError(e2);
           saveSession(null);
           throw new Error('登录已过期，请重新登录');
         }
+        /* 刷新成功后的重试：失败就原样抛出（比如 RLS 的 403），不能当成掉线把人登出 */
+        return await call(path, Object.assign({}, o, { headers: headers(true) }));
       }
       throw e;
     }
