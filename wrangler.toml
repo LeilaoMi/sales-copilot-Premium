@@ -9,7 +9,7 @@
 #
 # 【缓存头不写在这里】
 # Pages 不认 wrangler.toml 里的 [[headers]]（那是 Workers / Static Assets 的写法）。
-# Pages 的缓存规则写在 **public/_headers** 里，改缓存请去改那个文件。
+# Pages 的缓存与安全头写在 deploy/_headers，构建时复制成 public/_headers。改规则只改 deploy/ 那份。
 #
 # 【这是纯静态部署，没有后端】
 # 项目里没有 functions/ 目录，是有意的。
