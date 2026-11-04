@@ -65,6 +65,9 @@ jobs:
       - name: Minor 批回归
         run: node tools/test-minor.js
 
+      - name: 版本号与许可证
+        run: node tools/test-version.js
+
       - name: Service Worker 与通知测试
         run: node tools/test-sw.js
 

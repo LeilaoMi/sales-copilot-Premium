@@ -296,7 +296,7 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 sales-copilot-Premium/
 ├── index.html              唯一页面 + 页签 + 脚本加载顺序（顺序有依赖，注释写明了为什么）
 ├── manifest.json           PWA 清单
-├── sw.js                   Service Worker，缓存桶 sales-copilot-v5
+├── sw.js                   Service Worker，缓存桶 sales-copilot-v6
 ├── vercel.json             Vercel 缓存与项目配置（理由见 DEPLOY.md 第 7 节）
 ├── wrangler.toml           Cloudflare Pages 项目配置（name=sales-copilot-premium，输出 public）
 ├── assets/
@@ -380,6 +380,7 @@ node tools/test-quicklog.js   # 一句话录入：跟进方式、中文数字、
 node tools/test-digest.js     # 会话情报：等客户反馈、字段标签、签字误报、日期不算数量
 node tools/test-health.js     # 健康度缓存：拉下旧记录、删除后及时重算
 node tools/test-minor.js      # Minor 批：墓碑、成交月份、令牌、Azure/超时、按商机算健康度等
+node tools/test-version.js    # 版本号：package.json、store.js、CHANGELOG 三处一致，LICENSE 存在
 node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
 node tools/test-edgeone.mjs   # EdgeOne 适配器：设备满了无损收拢、空间数上限
 (cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
@@ -423,6 +424,12 @@ PORT=8080 node server/server.js
 | 月初回款预测显示 0 | 已修。没填预计成交日的单按最低估并提醒补 |
 | 同一浏览器换账号看到上一个人的数据 | 设计如此。localStorage 按网站分不按账号分，退出登录不清业务数据。要验证隔离请用两个浏览器或无痕窗口 |
 | 通知不响 | 需 HTTPS 且要授予通知权限；被拒时退化为页面角标。只提醒逾期和 48 小时内到期 |
+
+## 12. 版本与许可
+
+当前版本 **1.0.0**，变更见 [CHANGELOG.md](CHANGELOG.md)。发版时同时改 `package.json`、`js/core/store.js` 的 `VERSION` 和 CHANGELOG，并打 `vX.Y.Z` 标签。
+
+版权所有 © 2026 LeilaoMi，保留所有权利。仓库公开仅供查阅，未经书面许可不得复制、修改、分发或部署，详见 [LICENSE](LICENSE)。
 
 ---
 
