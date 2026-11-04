@@ -11,7 +11,7 @@
  *   PUT  /api/sync  → { revision, data }      推送本地快照（服务端做 LWW 合并后返回）
  *   GET  /api/health → { ok, revision, size }
  *
- * 存储：./data/sync-store.json（不可写时退化为内存，并打印警告）
+ * 存储：./data/store-<空间哈希>.json，每个令牌一个文件；备份在 ./data/backups/（不可写时退化为内存，并打印警告）
  * ============================================================ */
 'use strict';
 const http = require('http');
@@ -26,7 +26,6 @@ const CORE = require('../js/core/sync-core');
 const PORT = process.env.PORT || 8080;
 const ROOT = require('path').join(__dirname, '..'); // server/ -> 项目根，前端静态文件都在那
 const DATA_DIR = path.join(ROOT, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'sync-store.json');
 const TOKEN_FILE = path.join(DATA_DIR, 'token.txt');
 const KEYS = CORE.KEYS;
 const BACKUP_KEEP = Number(process.env.BACKUP_KEEP || 10);   // 每个空间保留的历史版本份数
@@ -43,9 +42,35 @@ const MAX_SPACES = Number(process.env.MAX_SPACES || 200);    // 空间数上限�
  *        注意：令牌就是唯一的钥匙，请让每个人用足够长且不易猜的字符串。
  */
 const FIXED_TOKEN = process.env.SYNC_TOKEN || '';
+/* 固定令牌把关（2026-11-04 审计 M16）：systemd / Docker 模板里带着示例令牌，
+ * 忘改就等于把数据交给所有读过 README 的人。太短或像占位符就拒绝启动，比带病上线强。 */
+const PLACEHOLDER_RE = /change-?me|your-?token|你的|你自己|示例|example|placeholder/i;
+if (FIXED_TOKEN && (FIXED_TOKEN.length < 16 || PLACEHOLDER_RE.test(FIXED_TOKEN))) {
+  console.error('SYNC_TOKEN 不安全：' + (FIXED_TOKEN.length < 16 ? '少于 16 位' : '还是模板里的占位符') +
+    '。请换成随机长串（例：openssl rand -hex 16），或去掉 SYNC_TOKEN 改用多人模式。');
+  process.exit(1);
+}
 let SUGGESTED = '';
-let writable = true;
-try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { writable = false; }
+/* 启动时真写一次（2026-11-04 审计 M15）。以前只看 mkdir 有没有抛错：目录已存在但属主是 root
+ * （Docker 绑定挂载的典型情况）时 mkdir 照样成功，于是每次落盘都失败、只打日志，
+ * /api/health 却一直报 storage:file，重启即丢。REQUIRE_DISK=1 时不可写直接退出（容器模板默认开）。 */
+function probeWritable() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const f = path.join(DATA_DIR, '.write-probe-' + process.pid);
+    fs.writeFileSync(f, 'ok');
+    fs.unlinkSync(f);
+    return true;
+  } catch (e) {
+    console.error('数据目录不可写：' + DATA_DIR + '（' + (e.code || e.message) + '）');
+    return false;
+  }
+}
+let writable = probeWritable();
+if (!writable && /^(1|true|yes)$/i.test(process.env.REQUIRE_DISK || '')) {
+  console.error('REQUIRE_DISK 已开启，数据目录不可写时拒绝启动。容器部署请检查卷的属主（见 deploy/Dockerfile 顶部说明）。');
+  process.exit(1);
+}
 try { SUGGESTED = fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch (e) {}
 if (!SUGGESTED) {
   SUGGESTED = crypto.randomBytes(12).toString('hex');
@@ -56,7 +81,7 @@ console.log('============================================');
 console.log('  销冠助手同步服务已启动');
 console.log('  端口:   ' + PORT);
 console.log('  模式:   ' + MODE);
-if (FIXED_TOKEN) console.log('  令牌:   ' + FIXED_TOKEN);
+if (FIXED_TOKEN) console.log('  令牌:   已设置（' + FIXED_TOKEN.length + ' 位，不在日志里显示）');
 else console.log('  令牌:   自定义，≥8 位即可（建议用：' + SUGGESTED + '）');
 console.log('  存储:   ' + (writable ? DATA_DIR + '（按令牌分文件）' : '内存（目录不可写，重启即丢）'));
 console.log('  备份:   ' + (writable ? '每次覆盖前自动留档，保留最近 ' + BACKUP_KEEP + ' 份（BACKUP_KEEP 可调）' : '不可用'));
@@ -71,7 +96,9 @@ const hash = CORE.spaceKey;   // 令牌 → 12 位空间名，令牌本身不落
 
 function spaceFile(h) { return path.join(DATA_DIR, 'store-' + h + '.json'); }
 
-function getSpace(token) {
+/* create=false 时（GET 拉取）只读不占位：以前 GET 也会占一个 MAX_SPACES 名额，
+ * 随便拿些假令牌 GET 一遍就能把名额刷满到重启（审计 m8）。不存在返回 undefined。 */
+function getSpace(token, create) {
   const h = hash(token);
   if (spaces.has(h)) return spaces.get(h);
   let sp = { revision: 0, data: null };
@@ -81,6 +108,7 @@ function getSpace(token) {
     const p = JSON.parse(raw);
     if (p && typeof p === 'object') { sp = p; existed = true; console.log('[' + h + '] 已加载历史数据，revision=' + sp.revision); }
   } catch (e) { /* 首次使用，正常 */ }
+  if (!existed && create === false) return undefined;
   // 新空间要占位，先查是否超额（公开部署时防止被无限刷空间）
   if (!existed && spaces.size >= MAX_SPACES) return null;
   spaces.set(h, sp);
@@ -133,21 +161,42 @@ function rotateBackup(h) {
   } catch (e) { console.error('备份失败:', e.message); }
 }
 
+/* 返回 true 表示已落盘（或本来就是内存模式，无盘可落）；false 表示写盘失败。
+ * 以前写失败只打一行日志、照样回 200（2026-11-04 审计 M25）：客户端以为同步成功，
+ * 重启后这段数据就没了。现在调用方据此回 500，并且不把这次推送留在内存里。 */
 function persist(h, sp) {
-  if (!writable) return;
+  if (!writable) return true;
   try {
     rotateBackup(h);                            // 先留后路，再覆盖
     const f = spaceFile(h), tmp = f + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(sp));
     fs.renameSync(tmp, f);   // 原子写，避免写一半断电损坏
-  } catch (e) { console.error('写入失败:', e.message); }
+    return true;
+  } catch (e) {
+    console.error('写入失败:', e.message);
+    return false;
+  }
 }
 
 /* ---------- 合并：逐条 LWW + 墓碑 ---------- */
 const merge = CORE.merge;
 const calcRevision = CORE.calcRevision;
+const validate = CORE.validate;
 
 /* ---------- HTTP ---------- */
+/* 页面安全头（2026-11-04 审计 M3）。
+ * 重点是 script-src 'self'：即使哪里漏了转义、被塞进 onmouseover=… 之类的内联处理器，
+ * 浏览器也不会执行。connect-src 放得很宽是有意的——AI 接口、自建同步、Supabase
+ * 地址都允许用户自填（含本机 http://localhost），收窄会直接弄坏这些功能。
+ * style 需要 'unsafe-inline'：页面大量使用 style="" 属性。
+ * 与 deploy/_headers、vercel.json 保持同一份内容。 */
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: http: wss:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const PAGE_HEADERS = {
+  'Content-Security-Policy': CSP,
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin'
+};
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -160,17 +209,20 @@ function send(res, code, obj, headers) {
   res.writeHead(code, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,PUT,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization'
+    /* 与 EdgeOne 适配器一致（审计 M13）：前端每次同步都带 X-Sync-Token / X-Device-Id，
+     * 不放行的话「Pages 前端 + 自建后端」跨域预检必失败。服务端没有 POST 接口，不再声明。 */
+    'Access-Control-Allow-Methods': 'GET,PUT,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Sync-Token,X-Device-Id',
+    'Access-Control-Max-Age': '86400'
   }, headers || {}));
   res.end(body);
 }
 
-/* 取令牌，按顺序尝试三种携带方式：
+/* 取令牌，按顺序尝试两种携带方式：
  *   1. Authorization: Bearer xxx        标准方式，首选
  *   2. X-Sync-Token: xxx                备用头（有些反向代理会吃掉 Authorization）
- *   3. ?token=xxx                       查询参数，兼容性最好
- * 为什么需要后两种：实测部分云平台网关（如 CloudStudio Gateway）会剥离 Authorization 头，
+ * 以前还接受 ?token=xxx，会原样进访问日志，已去掉（审计 m8）。
+ * 为什么需要备用头：实测部分云平台网关（如 CloudStudio Gateway）会剥离 Authorization 头，
  * 表现为本地联调一切正常、一上线就全部 401，且很难排查。
  */
 function tokenOf(req) { return CORE.tokenOf(req); }
@@ -200,10 +252,26 @@ function isPrivatePath(pathname) {
   if (top === 'data' || top === 'server' || top === 'node_modules') return true;
   return segs.some(s => s.charCodeAt(0) === 46);   // 46 = '.'，覆盖 .env / .git / .vercel 等
 }
+/* 白名单（审计 M27）：黑名单挡得住 data/ 却漏了 db/、tools/、docs/、deploy/ 这些
+ * 本就不该公网下载的目录。只放行前端真正要加载的东西，其余一律 404。
+ * 黑名单仍保留，作为第二道闸。 */
+const PUBLIC_FILES = new Set(['/', '/index.html', '/sw.js', '/manifest.json']);
+const PUBLIC_DIRS = ['/js/', '/assets/', '/kb/'];
+function isPublicPath(pathname) {
+  if (PUBLIC_FILES.has(pathname)) return true;
+  return PUBLIC_DIRS.some(d => pathname.startsWith(d));
+}
 
 const server = http.createServer((req, res) => {
-  const u = new URL(req.url, 'http://x');
-  const pathname = decodeURIComponent(u.pathname);
+  /* 畸形百分号编码（如 /%E0%A4%A）会让 decodeURIComponent 抛 URIError。
+   * 以前没接住，未鉴权的一个 GET 就能把整个进程打挂（2026-11-04 审计 C2）。 */
+  let u, pathname;
+  try {
+    u = new URL(req.url, 'http://x');
+    pathname = decodeURIComponent(u.pathname);
+  } catch (e) {
+    return send(res, 400, { error: '请求路径编码不合法' });
+  }
 
   if (req.method === 'OPTIONS') return send(res, 204, '');
 
@@ -219,10 +287,9 @@ const server = http.createServer((req, res) => {
       spaces: spaces.size,
       authSeen: !!tk,
       authVia: tk ? (req.headers['x-sync-token'] ? 'header'
-        : (req.headers.authorization ? 'authorization'
-          : (new URL(req.url, 'http://x').searchParams.get('token') ? 'query' : '?')))
+        : (req.headers.authorization ? 'authorization' : '?'))
         : 'none',
-      accepts: ['Authorization: Bearer', 'X-Sync-Token', '?token='],
+      accepts: ['Authorization: Bearer', 'X-Sync-Token'],
       time: new Date().toISOString()
     });
   }
@@ -253,7 +320,8 @@ const server = http.createServer((req, res) => {
     if (!authOk(req)) return send(res, 401, { error: '令牌无效' });
     const tk = tokenOf(req);
     const h = hash(tk);
-    const store = getSpace(tk);
+    const store = getSpace(tk, req.method !== 'GET');
+    if (store === undefined) return send(res, 404, { error: '云端暂无数据，等待第一次推送' });
     if (!store) return send(res, 503, { error: '服务端空间数已达上限，请联系管理员或自行部署' });
 
     if (req.method === 'GET') {
@@ -261,20 +329,41 @@ const server = http.createServer((req, res) => {
       return send(res, 200, { revision: store.revision, data: store.data });
     }
     if (req.method === 'PUT') {
-      let body = '';
+      /* 先收原始字节、最后整体按 UTF-8 解码（2026-11-04 审计 C3）。
+       * 以前 body += chunk 是逐块转字符串，一个汉字的 3 个字节被网络分包切开时
+       * 两半各自解码成 U+FFFD，坏数据落盘后再经 LWW 同步到所有设备。 */
+      const MAX = 8 * 1024 * 1024;   // 8MB 上限，按字节算
+      const chunks = [];
+      let size = 0, tooBig = false;
       req.on('data', c => {
-        body += c;
-        if (body.length > 8 * 1024 * 1024) { req.destroy(); }   // 8MB 上限
+        if (tooBig) return;
+        size += c.length;
+        if (size > MAX) {
+          tooBig = true;
+          chunks.length = 0;
+          // 先回 413 再断开，客户端能拿到明确错误，而不是一直挂着
+          send(res, 413, { error: '数据超过 8MB 上限' });
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
       });
       req.on('end', () => {
+        if (tooBig) return;
         let incoming;
-        try { incoming = JSON.parse(body).data; }
+        try { incoming = JSON.parse(Buffer.concat(chunks, size).toString('utf8')).data; }
         catch (e) { return send(res, 400, { error: 'JSON 解析失败' }); }
-        if (!incoming || typeof incoming !== 'object') return send(res, 400, { error: '缺少 data' });
+        // 结构不对直接 400，不让它进 merge（审计 C4：以前会抛错打挂进程）
+        const bad = validate(incoming);
+        if (bad) return send(res, 400, { error: '数据格式不对：' + bad });
         const merged = merge(store.data || {}, incoming);
+        const revision = calcRevision(merged);
+        /* 先落盘、成功了才更新内存：写失败时内存和磁盘保持一致，客户端拿到 500 会重试 */
+        if (!persist(h, Object.assign({}, store, { data: merged, revision: revision }))) {
+          return send(res, 500, { error: '服务端写盘失败，本次推送未保存，请稍后重试' });
+        }
         store.data = merged;
-        store.revision = calcRevision(merged);
-        persist(h, store);
+        store.revision = revision;
         console.log('[' + h + '] 收到推送，revision=' + store.revision +
           ' 客户=' + (merged.customers || []).filter(x => !x.deleted).length +
           ' 商机=' + (merged.deals || []).filter(x => !x.deleted).length +
@@ -286,12 +375,22 @@ const server = http.createServer((req, res) => {
     return send(res, 405, { error: '不支持的方法' });
   }
 
+  // 未实现的 /api/* 明确 404，不再回退成 index.html 的 200（审计 M27：客户端会把 HTML 当成 JSON 解析）
+  if (pathname.startsWith('/api/')) return send(res, 404, { error: '接口不存在' });
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: '不支持的方法' });
+
   // 静态文件
   let file = path.join(ROOT, pathname === '/' ? 'index.html' : pathname);
   if (!file.startsWith(ROOT)) return send(res, 403, { error: '禁止访问' });
   if (isPrivatePath(pathname)) return send(res, 403, { error: '禁止访问' });
+  /* 不在白名单里：带扩展名的当成文件请求，404；不带扩展名的当成前端路由，回 index.html */
+  if (!isPublicPath(pathname)) {
+    if (path.extname(pathname)) return send(res, 404, { error: '文件不存在' });
+    file = path.join(ROOT, 'index.html');
+  }
   fs.stat(file, (err, st) => {
     if (err || st.isDirectory()) {
+      if (path.extname(pathname) && !st) return send(res, 404, { error: '文件不存在' });
       file = path.join(ROOT, 'index.html');
     }
     fs.readFile(file, (e2, buf) => {
@@ -307,7 +406,7 @@ const server = http.createServer((req, res) => {
         : {};
       send(res, 200, buf, Object.assign({
         'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream'
-      }, extra));
+      }, PAGE_HEADERS, extra));
     });
   });
 });

@@ -338,7 +338,7 @@ window.Playbook = (function () {
       trust: '信任不足', security: '数据安全', trial: '试用', contract: '合同条款',
       closing: '临门一脚', silence: '客户沉默', follow: '日常跟进', referral: '转介绍',
       renew: '续约增购', complain: '投诉处理', discovery: '挖掘需求', opening: '开场破冰',
-      lost: '输单复盘', won: '赢单复盘', diy: '客户要自研'
+      lost: '输单复盘', won: '赢单复盘', diy: '客户要自研', delivery: '交付周期'
     };
     return keys.map(k => MAP[k] || k).join(' / ');
   }

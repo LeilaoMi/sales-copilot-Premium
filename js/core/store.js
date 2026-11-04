@@ -1,6 +1,6 @@
 /* ============================================================
  * 销冠助手 · 数据层
- * 数据全部保存在浏览器本地（localStorage），无后端、无网络请求。
+ * 数据保存在浏览器本地（localStorage）。本文件不发网络请求；云同步在 sync.js / auth.js。
  * ============================================================ */
 window.Store = (function () {
 
@@ -32,8 +32,28 @@ window.Store = (function () {
 
   /* ---------- 工具 ---------- */
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  /* 记录 id 白名单（2026-11-04 审计 M2）：渲染层已统一转义，这里在入口再挡一道，
+   * 与服务端 sync-core validate() 的规则一致。外来数据（导入、云端拉取）只认这种 id。 */
+  const SAFE_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
+  const isSafeId = v => typeof v === 'string' && SAFE_ID.test(v);
+  /* 关联字段（customerId/dealId）为空可以，有值则必须合法 */
+  const safeRef = v => v == null || v === '' || isSafeId(v);
+  const safeRecord = r => !!r && typeof r === 'object' && isSafeId(r.id) && safeRef(r.customerId) && safeRef(r.dealId);
   const pad = n => String(n).padStart(2, '0');
-  const toDate = v => (v ? new Date(v) : null);
+  /* 纯日期按本地时间解析（2026-11-04 审计 M12）。
+   * new Date('2026-11-04') 按规范是 UTC 零点：在 UTC− 时区（美洲）它是本地的前一天，
+   * 于是「明天」算成今天、今天的跟进算成逾期。'YYYY-MM-DD' 和 'YYYY-MM' 一律当本地日期，
+   * 带时间的 ISO 字符串、时间戳、Date 对象照常解析（它们本来就是一个确定的时刻）。 */
+  const DAY_RE = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/;
+  const toDate = v => {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'string') {
+      const m = DAY_RE.exec(v);
+      if (m) return new Date(+m[1], +m[2] - 1, m[3] ? +m[3] : 1);
+    }
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  };
   const fmtDate = v => { const d = toDate(v); return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : ''; };
   const fmtDateTime = v => { const d = toDate(v); return d ? `${fmtDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''; };
   const todayStr = () => fmtDate(new Date());
@@ -55,7 +75,8 @@ window.Store = (function () {
     return v.toLocaleString('zh-CN');
   };
   const moneyFull = n => '¥' + (Number(n) || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
-  /* 本月还剩几天（含今天）：回款预测与目标倒推都靠它判断「来不来得及」 */
+  /* 今天之后本月还剩几天（不含今天，月末当天为 0）：回款预测按「距今天数 ≤ 它」判断是否本月内。
+   * 给人看的「还剩几天」要 +1（含今天），见 views.js 与下面的 advice（审计 m6） */
   const daysLeftInMonth = () => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate();
@@ -99,12 +120,36 @@ window.Store = (function () {
   const SYNC_KEYS = ['customers', 'deals', 'followups', 'scripts'];
   let persistent = true;
 
+  /* 存储事件（2026-11-04 审计 M9 / M10 / M11）。界面层订阅后自己决定怎么提示：
+   *   corrupt      本机数据解析失败，原文已另存（info.backupKey）或另存也失败（info.backupKey 为空）
+   *   save-error   写入失败（多半是空间满了），本次改动只在内存里
+   *   save-ok      写入失败之后又恢复了
+   *   external     别的标签页改了数据，state 已重新载入，需要重绘
+   *   persist      持久化存储申请的结果（info.granted） */
+  const listeners = [];
+  function on(fn) { if (typeof fn === 'function') listeners.push(fn); }
+  function emit(type, info) {
+    listeners.forEach(fn => { try { fn(type, info || {}); } catch (e) { /* 订阅方出错不影响存储 */ } });
+  }
+  let corrupt = null;          // { backupKey, at }：本次启动发现的损坏
+  let saveBlocked = false;     // 损坏原文没能另存时，宁可不写也不覆盖它
+  let saveFailed = false;
+  let persistGranted = null;   // navigator.storage.persist() 的结果：true / false / null(不支持或未申请)
+
   /* 数据迁移：补齐 updatedAt（同步依赖它做冲突判定），老数据平滑升级 */
   function migrate() {
     const now = Date.now();
     let i = 0;
     SYNC_KEYS.forEach(k => {
       (state[k] || []).forEach(r => {
+        /* updatedAt 必须是毫秒数字：合并、版本号、服务端 LWW 都按数字比。
+         * 以前界面新建商机时写的是 ISO 字符串（ui.js），示例数据也是（审计 m5），
+         * 它们一律被当成 0，谁都能覆盖它们。这里把字符串按时刻换算回数字。 */
+        if (r.updatedAt && typeof r.updatedAt !== 'number') {
+          const n = Number(r.updatedAt);
+          const t = isFinite(n) ? n : Date.parse(r.updatedAt);
+          r.updatedAt = (t && !isNaN(t)) ? t : 0;
+        }
         if (!r.updatedAt) {
           const t = Date.parse(r.createdAt || r.at || r.closedAt || 0);
           r.updatedAt = (t && !isNaN(t)) ? t : now + (i++);
@@ -129,7 +174,7 @@ window.Store = (function () {
       }
     });
 
-    /* 话术库升级：老版本只有 12 条，新版 46 条且带 tags（检索质量依赖 tags）。
+    /* 话术库升级：老版本只有 12 条，新版内置话术（现 48 条）带 tags（检索质量依赖 tags）。
      * 老用户升级后必须自动拿到新话术，否则他打开还是旧的，等于没升级。
      *
      * 判断依据是「新种子缺不缺」，不是版本号 —— 版本号会被
@@ -171,8 +216,13 @@ window.Store = (function () {
         }
       });
 
-      /* 第二步：旧版内置话术视为已被新版覆盖 → 移除 */
-      let keep = state.scripts.filter(x => !(x.builtin && !freshTitles[x.title]));
+      /* 第二步：旧版内置话术视为已被新版覆盖 → 留墓碑删除（审计 m4）。
+       * 以前直接 filter 掉，云端那条还在，同步又拉回来，再删，来回抖。 */
+      const nowTomb = Date.now();
+      state.scripts.forEach(x => {
+        if (x && x.builtin && !freshTitles[x.title] && !x.deleted) { x.deleted = true; x.updatedAt = nowTomb; }
+      });
+      let keep = state.scripts.slice();
 
       /* 第三步：补齐还缺的内置话术 */
       const have = {};
@@ -193,23 +243,62 @@ window.Store = (function () {
   let freshInstall = false;
 
   function load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
+    gen++;
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); }
+    catch (e) { persistent = false; }          // 隐私模式等：localStorage 整个不可用
+    if (raw) {
+      try {
         const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
         state = Object.assign(emptyState(), parsed);
         state.settings = Object.assign(emptyState().settings, parsed.settings || {});
         freshInstall = false;
         migrate();
+        requestPersist();
+        return;
+      } catch (e) {
+        /* 解析失败（2026-11-04 审计 M9）。以前这里直接 emptyState() + save()，
+         * 把原文——可能只是截断、手工能修——覆盖掉，还当成新安装灌示例。
+         * 现在：原文先另存一份；另存不了就干脆不写，绝不覆盖它。 */
+        const backupKey = KEY + '.corrupt.' + Date.now();
+        let saved = false;
+        try { localStorage.setItem(backupKey, raw); saved = true; } catch (e2) { /* 多半是空间满了 */ }
+        corrupt = { backupKey: saved ? backupKey : '', at: Date.now() };
+        saveBlocked = !saved;
+        state = emptyState();
+        state.scripts = defaultScripts();
+        freshInstall = false;                   // 不是新用户，不灌示例
+        migrate();
+        save();
+        emit('corrupt', corrupt);
         return;
       }
-    } catch (e) { persistent = false; }
+    }
     state = emptyState();
     state.scripts = defaultScripts();
     freshInstall = true;
     migrate();
     save();
+    requestPersist();
   }
+
+  /* 申请持久化存储（2026-11-04 审计 M11）。
+   * 不申请的话，浏览器空间紧张时可以静默清掉本站数据；
+   * Safari 对没加到主屏幕的站点还有「7 天没打开就清脚本存储」的策略。
+   * 申请不一定批（Chrome 看站点互动程度，Safari 基本只对主屏幕应用批），结果给设置页显示。 */
+  function requestPersist() {
+    try {
+      const st = typeof navigator !== 'undefined' && navigator.storage;
+      if (!st || typeof st.persist !== 'function') return;
+      const ask = typeof st.persisted === 'function' ? st.persisted() : Promise.resolve(false);
+      Promise.resolve(ask)
+        .then(already => (already ? true : st.persist()))
+        .then(granted => { persistGranted = !!granted; emit('persist', { granted: persistGranted }); })
+        .catch(() => { /* 不支持就算了 */ });
+    } catch (e) { /* 同上 */ }
+  }
+
   /* 有没有任何业务数据（话术库不算 —— 它每次全新安装都会自带种子，
    * 拿它当「这人用过」的证据会永远为真，示例就再也不会出现了）。 */
   function hasBusinessData() {
@@ -246,9 +335,49 @@ window.Store = (function () {
     state.settings.updatedAt = Date.now();
     save();
   }
+  /* 自己刚写进去的那份。storage 事件只在「别的」标签页触发，
+   * 这里留一份是为了在极少数浏览器自己也收到事件时不白白重载一次。 */
+  let lastWritten = null;
+  /* 本地数据代号：每次 load / save 加一。
+   * 审计 m3：缓存以前只看 revision()（全库最大 updatedAt），
+   * 同步拉下一条较旧的记录、或 purge 清掉墓碑时最大值不变，缓存就不失效。
+   * revision() 留给同步判断「合并有没有带来更新」，缓存改看这个。 */
+  let gen = 0;
+  const generation = () => gen;
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); }
-    catch (e) { persistent = false; }
+    gen++;
+    if (saveBlocked) return;
+    try {
+      const txt = JSON.stringify(state);
+      localStorage.setItem(KEY, txt);
+      lastWritten = txt;
+      persistent = true;
+      if (saveFailed) { saveFailed = false; emit('save-ok'); }
+    } catch (e) {
+      /* 以前只把 persistent 置 false，界面上一声不吭（审计 M9）。 */
+      persistent = false;
+      saveFailed = true;
+      emit('save-error', { message: e && e.message });
+    }
+  }
+
+  /* 多标签页（2026-11-04 审计 M10）。
+   * 每个标签页都是「整份 state 写回 localStorage」，以前互不知情：
+   * 标签页 A 加了客户，标签页 B 还拿着旧 state，B 随便改一下就把 A 的那条抹掉。
+   * 现在别的标签页一写，这里立即用新值重载 state 并通知界面重绘。
+   * 每次修改都是同步写盘的，所以本页内存里不会有「没来得及写」的改动被重载冲掉。 */
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', e => {
+      if (!e || e.key !== KEY || e.newValue == null || e.newValue === lastWritten) return;
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (!parsed || typeof parsed !== 'object') return;
+        state = Object.assign(emptyState(), parsed);
+        state.settings = Object.assign(emptyState().settings, parsed.settings || {});
+        migrate();
+        emit('external');
+      } catch (err) { /* 别的页写了坏数据：不跟着坏，下次本页写入时覆盖回来 */ }
+    });
   }
   /* 清空业务数据时要活下来的东西：个人设置。
    *
@@ -264,9 +393,18 @@ window.Store = (function () {
   }
 
   function reset(keepScripts) {
-    const s = keepScripts ? state.scripts : defaultScripts();
-    const prev = carrySettings();
+    saveBlocked = false;      // 用户主动清空 = 明确同意覆盖（包括没能另存的损坏原文）
     const now = Date.now();
+    /* 不保留话术时，用户自建的话术也要留墓碑，否则同步又拉回来（审计 m4） */
+    let s = state.scripts;
+    if (!keepScripts) {
+      const fresh = defaultScripts();
+      const ids = {};
+      fresh.forEach(x => { ids[x.id] = 1; });
+      s = fresh.concat((state.scripts || []).filter(x => x && !ids[x.id])
+        .map(x => (x.deleted ? x : Object.assign({}, x, { deleted: true, updatedAt: now }))));
+    }
+    const prev = carrySettings();
 
     /* 清空必须留墓碑，不能让记录凭空消失。
      *
@@ -294,6 +432,7 @@ window.Store = (function () {
     save();
   }
   const isPersistent = () => persistent;
+  const storageInfo = () => ({ persistent, saveFailed, saveBlocked, corrupt, persistGranted });
 
   /* 全局版本号：所有记录中最大的 updatedAt，用于快速判断是否变化 */
   const revision = () => {
@@ -311,7 +450,9 @@ window.Store = (function () {
     return (o && !o.deleted) ? o : null;
   }
   function insert(name, obj) {
-    const o = Object.assign({ id: uid(), updatedAt: Date.now() }, obj);
+    const o = Object.assign({ id: uid() }, obj);
+    /* 调用方传进来的 updatedAt 若不是数字（比如 ISO 字符串）一律改成当前毫秒数，理由见 migrate() */
+    if (typeof o.updatedAt !== 'number' || !isFinite(o.updatedAt)) o.updatedAt = Date.now();
     state[name].unshift(o);
     save();
     if (window.Sync && Sync.onLocalChange) Sync.onLocalChange();
@@ -340,11 +481,17 @@ window.Store = (function () {
     }
   }
   /* 物理清理：把墓碑记录真正删掉（本地「压缩数据」用，不同步给其他设备） */
+  /* 压缩数据（审计 m7）：只清 30 天前的墓碑。
+   * 以前全清，开着同步时云端的墓碑下次又拉回来，「压缩」等于没做；
+   * 刚删的墓碑也还没来得及传给别的设备。
+   * 配套：sync-core 合并与记录级拉取时，本地没有、云端是超过 30 天的墓碑，不再拉回。 */
+  const TOMB_TTL = 30 * 864e5;
   function purge() {
     let n = 0;
+    const cut = Date.now() - TOMB_TTL;
     SYNC_KEYS.forEach(k => {
       const before = state[k].length;
-      state[k] = state[k].filter(x => !x.deleted);
+      state[k] = state[k].filter(x => !x.deleted || (Number(x.updatedAt) || 0) > cut);
       n += before - state[k].length;
     });
     save();
@@ -405,17 +552,19 @@ window.Store = (function () {
     const mk = monthKey(now);
     const openDeals = list('deals').filter(d => d.stage !== 'won' && d.stage !== 'lost');
     const wonDeals = list('deals').filter(d => d.stage === 'won');
+    /* 赢单缺 closedAt 时 monthKey(undefined) 会落到「本月」（审计 m6）：没有成交日期的不计入任何月份 */
+    const closedMonth = d => (d.closedAt ? monthKey(d.closedAt) : '');
     const lostDeals = list('deals').filter(d => d.stage === 'lost');
     const closed = wonDeals.length + lostDeals.length;
 
-    const monthWon = wonDeals.filter(d => monthKey(d.closedAt) === mk);
+    const monthWon = wonDeals.filter(d => closedMonth(d) === mk);
     const revenue = sum(monthWon, d => d.amount);
     const target = Number(state.settings.monthlyTarget) || 0;
     const rate = target ? revenue / target : 0;
 
     // 上月同期
     const lastMk = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-    const lastRevenue = sum(wonDeals.filter(d => monthKey(d.closedAt) === lastMk), d => d.amount);
+    const lastRevenue = sum(wonDeals.filter(d => closedMonth(d) === lastMk), d => d.amount);
 
     // 漏斗（不含赢单，展示在谈阶段）
     const funnel = BOARD_STAGES.map(s => {
@@ -429,7 +578,7 @@ window.Store = (function () {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const k = monthKey(d);
-      const arr = wonDeals.filter(x => monthKey(x.closedAt) === k);
+      const arr = wonDeals.filter(x => closedMonth(x) === k);
       months.push({ key: k, label: monthLabel(d), value: sum(arr, x => x.amount), count: arr.length });
     }
 
@@ -518,8 +667,8 @@ window.Store = (function () {
     } else if (forecast >= gapAmount * 0.6) {
       verdict = 'tight';
       const short = gapAmount - forecast;
-      advice = `现有在谈单按赢率折算只能覆盖 ${moneyFull(short === gapAmount ? forecast : forecast)}，缺口约 ${moneyFull(short)}。`
-        + `本月剩 ${left} 天，还来得及补 ${needDeals || 1} 个能快速签的单，或者把某单的成交日往前推。`;
+      advice = `现有在谈单按赢率折算只能覆盖 ${moneyFull(forecast)}，缺口约 ${moneyFull(short)}。`
+        + `本月剩 ${left + 1} 天（含今天），还来得及补 ${needDeals || 1} 个能快速签的单，或者把某单的成交日往前推。`;
     } else {
       verdict = 'unlikely';
       const short = gapAmount - forecast;
@@ -580,13 +729,49 @@ window.Store = (function () {
   const dealName = id => { const d = get('deals', id); return d ? d.title : ''; };
 
   /* ---------- 导入导出 ---------- */
-  function exportJSON() { return JSON.stringify(state, null, 2); }
+  /* 导出（2026-11-04 审计 M21）。
+   * 数据码是明文 base64，往往经微信发送、留在聊天记录里，所以默认剔除凭据：
+   * AI / Tavily 的 Key、同步配置（令牌、地址与 key）、自定义云配置。登录会话本来就不在 state 里。
+   * 「导出备份 JSON」是存在本机的文件，传 { secrets: true } 保留凭据，换机时少填一遍。 */
+  function stripCredentials(st) {
+    const out = clone(st);
+    const se = out.settings || {};
+    delete se.sync;
+    delete se.cloud;
+    ['ai', 'tavily'].forEach(k => { if (se[k] && typeof se[k] === 'object') se[k].key = ''; });
+    return out;
+  }
+  function exportJSON(opts) {
+    const withSecrets = !!(opts && opts.secrets);
+    return JSON.stringify(withSecrets ? state : stripCredentials(state), null, 2);
+  }
+  /* 导入（审计 M21）：
+   *   - 以导入内容为准：所有导入记录的 updatedAt 刷成现在，否则开着同步时会被云端较新的版本或删除标记盖回去
+   *   - 本机设备 ID 不跟着导入（EdgeOne 按设备 ID 分文件，两台设备同一 ID 会互相覆盖）
+   *   - 导入内容里没有的凭据（数据码默认剔除）保留本机现有的，导入后不用重新登录、重填 Key */
   function importJSON(text) {
     const obj = JSON.parse(text);
     if (!obj || typeof obj !== 'object') throw new Error('文件格式不正确');
+    const prev = state;
     state = Object.assign(emptyState(), obj);
     state.settings = Object.assign(emptyState().settings, obj.settings || {});
     SYNC_KEYS.forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
+    const bad = SYNC_KEYS.reduce((n, k) => n + state[k].filter(r => !safeRecord(r)).length, 0);
+    if (bad) { state = prev; throw new Error('文件里有 ' + bad + ' 条记录的 id 含非法字符，已取消导入'); }
+
+    state.deviceId = prev.deviceId || state.deviceId;
+    const ps = prev.settings || {}, ns = state.settings;
+    ['sync', 'cloud'].forEach(k => { if (ns[k] == null && ps[k] != null) ns[k] = clone(ps[k]); });
+    ['ai', 'tavily'].forEach(k => {
+      if (ps[k] && ps[k].key && !(ns[k] && ns[k].key)) ns[k] = Object.assign({}, ns[k] || {}, { key: ps[k].key });
+    });
+
+    const now = Date.now();
+    let i = 0;
+    SYNC_KEYS.forEach(k => state[k].forEach(r => { r.updatedAt = now + (i++); }));
+    ns.updatedAt = now + i;
+
+    saveBlocked = false;      // 用户主动导入 = 明确同意覆盖（包括没能另存的损坏原文）
     migrate();
     save();
   }
@@ -601,7 +786,7 @@ window.Store = (function () {
   }
 
   /* ---------- 话术库 ----------
-   * 种子数据放在 playbook.js 里（46 条，带 tags 用于检索）。
+   * 种子数据放在 playbook.js 里（现 48 条，带 tags 用于检索）。
    * 这里只做委托 —— 话术库的重心是「检索」和「自己沉淀」，
    * 种子只是冷启动时别让它空着。 */
   function defaultScripts() {
@@ -616,6 +801,15 @@ window.Store = (function () {
    * 补缺失的新种子，但不覆盖他改过的任何一条。 */
   function seed(keepScripts) {
     const prev = state && Array.isArray(state.scripts) ? state.scripts : null;
+    /* 「载入示例」覆盖的是业务数据，被覆盖的真实记录要留墓碑（审计 m4）。
+     * 以前整个数组直接换掉，开着同步时真实数据下次又被拉回来，和示例混在一起。
+     * 旧的示例记录不留（它们不上云），已有的墓碑原样带上。 */
+    const seedTombs = {};
+    const tombNow = Date.now();
+    ['customers', 'deals', 'followups'].forEach(k => {
+      seedTombs[k] = ((state && state[k]) || []).filter(r => r && !r.demo)
+        .map(r => (r.deleted ? r : Object.assign({}, r, { deleted: true, updatedAt: tombNow })));
+    });
     const prevSettings = carrySettings();
     state = emptyState();
     /* 个人设置整份保留：「载入示例数据」换的是业务数据，
@@ -757,9 +951,14 @@ window.Store = (function () {
      * 「你改过的就是你的」—— 这条规则比任何版本号判断都可靠。 */
     [customers, dealObjs, followups].forEach(arr => arr.forEach(r => { r.demo = true; }));
 
-    state.customers = customers;
-    state.deals = dealObjs;
-    state.followups = followups;
+    const withTombs = (arr, k) => {
+      const ids = {};
+      arr.forEach(r => { ids[r.id] = 1; });
+      return arr.concat(seedTombs[k].filter(r => !ids[r.id]));
+    };
+    state.customers = withTombs(customers, 'customers');
+    state.deals = withTombs(dealObjs, 'deals');
+    state.followups = withTombs(followups, 'followups');
     migrate();
     save();
   }
@@ -767,8 +966,8 @@ window.Store = (function () {
   return {
     KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
-    addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, sum, daysLeftInMonth,
-    load, save, reset, seed, isPersistent, migrate, revision, purge, purgeDemo,
+    addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, isSafeId, safeRecord, sum, daysLeftInMonth,
+    load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, generation, purge, purgeDemo, TOMB_TTL,
     shouldSeedDemo, markOnboarded,
     list, get, insert, update, remove, removeCustomer, setStage,
     stats, customerMeta, customerName, dealName,

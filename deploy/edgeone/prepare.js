@@ -26,6 +26,11 @@ if (!fs.existsSync(SRC)) {
   process.exit(1);
 }
 
+if (!fs.existsSync(SRC)) {
+  console.error('✗ 找不到 ' + SRC + '\n  这个脚本要在销冠助手仓库里运行（node deploy/edgeone/prepare.js），' +
+    '拷贝出去的目录里没有源文件。生成好再拷贝，或把仓库里生成的 cloud-functions/_shared/sync-core.js 覆盖过去。');
+  process.exit(1);
+}
 const srcText = fs.readFileSync(SRC, 'utf8');
 const BEGIN = '/* ===== SYNC-CORE-BEGIN ===== */';
 const END = '/* ===== SYNC-CORE-END ===== */';

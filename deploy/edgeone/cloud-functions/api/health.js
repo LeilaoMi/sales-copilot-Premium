@@ -3,7 +3,6 @@
  * 部署完先访问这个地址确认后端活着，再去 App 里填同步地址。
  * 否则一旦连不上，你分不清是地址填错、令牌不对，还是函数没起来。 */
 
-import { getStore } from '@edgeone/pages-blob';
 import CORE from '../_shared/sync-core.js';
 
 const STORE_NAME = process.env.BLOB_STORE || 'sales-copilot';
@@ -30,7 +29,6 @@ export async function onRequest(context) {
   };
 
   try {
-    const st = getStore({ name: STORE_NAME, consistency: 'strong' });
     const { stores } = await (await import('@edgeone/pages-blob')).listStores();
     out.stores = (stores || []).map(s => s.name);
     out.blobReady = (stores || []).some(s => s.name === STORE_NAME);
@@ -46,8 +44,7 @@ export async function onRequest(context) {
   if (token && CORE.authOk({ headers: req.headers, url: req.url }, FIXED_TOKEN)) {
     try {
       const space = CORE.spaceKey(token);
-      const st = getStore({ name: STORE_NAME, consistency: 'strong' });
-      const { blobs } = await st.list({ prefix: 'sync/' + space + '/', consistency: 'strong' });
+        const { blobs } = await st.list({ prefix: 'sync/' + space + '/', consistency: 'strong' });
       out.space = space;
       out.devices = blobs.length;
     } catch (e) {

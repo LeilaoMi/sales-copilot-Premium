@@ -24,7 +24,10 @@
  * 另外 CACHE 版本号提到 v3：用户机器上那份陈旧的 v2 缓存，
  * 会在 activate 时被清理掉（下面那段 caches.delete）。
  */
-const CACHE = 'sales-copilot-v3';
+/* v4（2026-11-04 审计 M22）：知识库和 manifest 改成「先用缓存、后台更新」，
+ * 旧 v3 里那份永不更新的 knowledge.json 借这次换版本清掉。 */
+const CACHE = 'sales-copilot-v5';
+const NET_TIMEOUT = 3000;   // 弱网（有信号没数据）时最多等 3 秒就先用缓存
 
 /* 预缓存清单：只在首次安装时用，目的是让「第一次离线打开」也有完整页面。
  * 必须和 index.html 里实际引用的文件保持一致 —— 旧版漏了 6 个模块，
@@ -54,13 +57,14 @@ const FILES = [
   './manifest.json',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
+  './assets/icons/icon-maskable-512.png',
   './assets/icons/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES).catch(() => {
-    /* 单个文件 404 不该让整个安装失败：宁可缓存不完整，也要能离线打开 */
-  })));
+  /* 逐个缓存（审计 M22）：cache.addAll 是原子的，任一文件 404 就一个都不存，
+   * 和「宁可缓存不完整，也要能离线打开」的本意相反。 */
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(FILES.map(f => c.add(f).catch(() => {})))));
   self.skipWaiting();
 });
 
@@ -72,20 +76,46 @@ self.addEventListener('activate', e => {
   );
 });
 
-/* 代码类资源：网络优先，断网回退缓存 */
-async function networkFirst(req) {
+/* 代码类资源：网络优先，断网回退缓存。
+ * 网络超过 NET_TIMEOUT 还没回来、而缓存里有，就先给缓存（审计 M22：以前弱网下要等浏览器自己超时，
+ * 往往几十秒白屏）；网络那一份照样在后台写进缓存，下次打开就是新的。 */
+function putCache(req, res) {
+  if (res && res.ok) {
+    const copy = res.clone();
+    return caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+  }
+  return Promise.resolve();
+}
+async function networkFirst(req, event) {
+  const net = fetch(req).then(res => { const w = putCache(req, res); if (event && event.waitUntil) event.waitUntil(w); return res; });
+  net.catch(() => {});
+  let timer;
+  const slow = new Promise(rs => { timer = setTimeout(() => rs('timeout'), NET_TIMEOUT); });
   try {
-    const fresh = await fetch(req);
-    if (fresh && fresh.ok) {
-      const copy = fresh.clone();
-      caches.open(CACHE).then(c => c.put(req, copy).catch(() => {}));
-    }
-    return fresh;
+    const first = await Promise.race([net, slow]);
+    if (first !== 'timeout') { clearTimeout(timer); return first; }
+    const cached = await caches.match(req);
+    if (cached) return cached;
+    return await net;                       // 没缓存可用，只能继续等网络
   } catch (e) {
+    clearTimeout(timer);
     const cached = await caches.match(req);
     if (cached) return cached;
     return new Response('离线且无缓存', { status: 503, statusText: 'offline' });
   }
+}
+
+/* 会更新但不急的数据（知识库、manifest）：先给缓存，后台拉新的写回缓存。
+ * 以前走 cacheFirst，第一次缓存后永远不更新。 */
+async function staleWhileRevalidate(req, event) {
+  const cached = await caches.match(req);
+  const net = fetch(req).then(res => putCache(req, res).then(() => res));
+  if (cached) {
+    const bg = net.catch(() => {});
+    if (event && event.waitUntil) event.waitUntil(bg);
+    return cached;
+  }
+  try { return await net; } catch (e) { return new Response('', { status: 504 }); }
 }
 
 /* 图标这类不会变的东西：缓存优先，省一次请求 */
@@ -114,8 +144,27 @@ self.addEventListener('fetch', e => {
 
   /* 代码和页面必须拿最新的，否则修好的 bug 到不了用户机器上 */
   if (/\.(html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/')) {
-    e.respondWith(networkFirst(req));
+    e.respondWith(networkFirst(req, e));
+    return;
+  }
+  if (/\.(json|webmanifest)$/.test(url.pathname)) {
+    e.respondWith(staleWhileRevalidate(req, e));
     return;
   }
   e.respondWith(cacheFirst(req));
+});
+
+/* 点击跟进提醒（notify.js 经 registration.showNotification 弹出，审计 M14）：
+ * 有打开的窗口就切过去并让它跳到客户库，没有就新开一个。 */
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const view = (e.notification.data && e.notification.data.view) || '';
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const c = list.find(x => 'focus' in x);
+    if (c) {
+      if (view) c.postMessage({ type: 'sc-go', view: view });
+      return c.focus();
+    }
+    return clients.openWindow ? clients.openWindow('./') : null;
+  }));
 });

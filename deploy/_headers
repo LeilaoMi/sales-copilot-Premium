@@ -19,9 +19,13 @@
 # 文件名不带 hash，不能设长缓存。
 # 这个项目修复过一次「用户刷新拿不到新代码」的问题，根因就是缓存时间太长，
 # 5 分钟是权衡：日常刷新能很快拿到新版，又不会因为每次都回源而变慢。
+# 安全头（审计 M3）与 server/server.js、vercel.json 是同一份内容，改一处要三处一起改。
 /*
   Cache-Control: public, max-age=300
   X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: http: wss:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
 
 # ---------- Service Worker：绝不缓存 ----------
 # sw.js 是「页面该拿新代码还是旧代码」的裁判。

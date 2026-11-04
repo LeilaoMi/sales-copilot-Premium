@@ -1,0 +1,132 @@
+# 回归测试（2026-11-04 审计 M19）。
+# 以前仓库只有保活任务，没有任何测试在推送时跑；审计里 C2/C3/M5/M6 这类问题都是测试能拦住的。
+# 每次推送和 PR 都跑：语法检查 → 单元 / 服务端 / XSS / 同步 / 存储测试 → 构建 → EdgeOne 副本一致性 → 数据库权限（RLS）。
+# 不需要任何密钥，也不连线上 Supabase：RLS 用 PGlite 在内存里起一个真 Postgres。
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 语法检查（所有 .js）
+        run: |
+          git ls-files '*.js' | while read -r f; do node --check "$f" || { echo "语法错误: $f"; exit 1; }; done
+
+      - name: 单元测试
+        run: node tools/test.js
+
+      - name: 服务端测试（畸形 URL、UTF-8 分包、坏快照、413、CSP、写盘失败）
+        run: node tools/test-server.js
+
+      - name: XSS 测试
+        run: node tools/test-xss.js
+
+      - name: 快照同步测试
+        run: node tools/test-sync.js
+
+      - name: 账号同步测试
+        run: node tools/test-cloud-sync.js
+
+      - name: 本地存储与登录态测试
+        run: node tools/test-storage.js
+
+      - name: 时区测试（洛杉矶 / 上海 / 基里巴斯）
+        run: node tools/test-tz.js
+
+      - name: 一句话录入测试
+        run: node tools/test-quicklog.js
+
+      - name: 会话情报（规则版）测试
+        run: node tools/test-digest.js
+
+      - name: 健康度测试
+        run: node tools/test-health.js
+
+      - name: Minor 批回归
+        run: node tools/test-minor.js
+
+      - name: Service Worker 与通知测试
+        run: node tools/test-sw.js
+
+      - name: EdgeOne 适配器测试
+        run: node tools/test-edgeone.mjs
+
+      - name: 构建（单文件版 + Pages）
+        run: |
+          node tools/build.js
+          node tools/build.js --pages
+
+      - name: EdgeOne 副本与源文件一致
+        run: node deploy/edgeone/prepare.js --check
+
+      - name: 数据库权限（RLS）回归
+        working-directory: tools/rls
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+
+  # Docker 模板实测（2026-11-04 审计 M15）：以前 VOLUME 之后的 chown 被丢弃，
+  # 绑定挂载的目录属主是 root，app 用户写不进去，健康检查却报 storage:file，重启即丢。
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建镜像
+        run: docker build -t sales-copilot -f deploy/Dockerfile .
+
+      - name: 命名卷：能落盘、重启不丢、健康检查为 healthy
+        run: |
+          set -eu
+          TOKEN=$(openssl rand -hex 16)
+          docker run -d --name sc -p 18080:8080 -e SYNC_TOKEN=$TOKEN -v sc-data:/app/data sales-copilot
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18080/api/health | grep -q '"storage":"file"'
+          curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            --data '{"data":{"customers":[{"id":"ci1","name":"CI","updatedAt":1}]}}' http://127.0.0.1:18080/api/sync
+          docker restart sc
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/api/health >/dev/null && break; sleep 1; done
+          curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:18080/api/sync | grep -q '"ci1"'
+          for i in $(seq 1 30); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' sc); echo "health=$s"
+            [ "$s" = healthy ] && break; sleep 2
+          done
+          [ "$(docker inspect -f '{{.State.Health.Status}}' sc)" = healthy ]
+          ! docker logs sc 2>&1 | grep -q "$TOKEN"
+
+      - name: 绑定 root 属主目录：拒绝启动而不是假装存上
+        run: |
+          set -eu
+          sudo mkdir -p /tmp/rootdata && sudo chown root:root /tmp/rootdata && sudo chmod 755 /tmp/rootdata
+          docker run --name sc-root -e SYNC_TOKEN=$(openssl rand -hex 16) -v /tmp/rootdata:/app/data sales-copilot || true
+          [ "$(docker inspect -f '{{.State.ExitCode}}' sc-root)" = 1 ]
+          docker logs sc-root 2>&1 | grep -q '不可写'
+
+      - name: 按文档给宿主目录授权后可以写
+        run: |
+          set -eu
+          sudo mkdir -p /tmp/okdata && sudo chown 10001:10001 /tmp/okdata
+          docker run -d --name sc-ok -p 18081:8080 -e SYNC_TOKEN=$(openssl rand -hex 16) -v /tmp/okdata:/app/data sales-copilot
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18081/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18081/api/health | grep -q '"storage":"file"'

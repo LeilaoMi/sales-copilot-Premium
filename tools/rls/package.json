@@ -1,0 +1,12 @@
+{
+  "name": "sales-copilot-rls-tests",
+  "private": true,
+  "description": "数据库权限（RLS）回归测试，用 PGlite 在内存里跑真 Postgres。只给 CI 和本地测试用，不随应用发布。",
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.15"
+  }
+}

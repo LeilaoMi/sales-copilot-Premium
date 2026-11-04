@@ -4,17 +4,20 @@
 # - 用的是 publishable key（anon 级），本来就会随前端 JS 分发给所有访问者，明文存放无风险。
 # - 保活表写入失败时任务标红（GitHub 会发邮件），提醒去执行建表 SQL。
 # - 检测到休眠时任务标红并提醒去 Dashboard 手动 Restore（GitHub 会发邮件）。
-# - 注意：GitHub 会在仓库 60 天无提交后自动停用定时任务，届时重新启用或推一次代码即可。
+# - GitHub 会在仓库 60 天无活动后自动停用定时任务。下面的 stay-enabled 任务每次运行都调用一次
+#   「启用工作流」接口来重置这个计时（审计 m20）；万一还是被停用，到 Actions 页面手动 Enable 即可。
+# - 保活表有限流：10 分钟内只能写一次，手动连续触发第二次会标红，属正常。
 # - 2026-10-13 起覆盖两个项目：生产库 sales-copilot-Premium + 测试项目 sales copilot。
 name: supabase-keepalive
 
 on:
   schedule:
-    - cron: "17 1 */3 * *" # 每 3 天一次（UTC 01:17 ≈ 北京 09:17）
+    - cron: "17 1 */3 * *" # 每 3 天一次，计划 UTC 01:17（北京 09:17）；GitHub 定时任务常延迟数小时，实测多在北京 14–16 点才跑
   workflow_dispatch: {} # 支持手动触发
 
 permissions:
   contents: read
+  actions: write   # 只给 stay-enabled 调「启用工作流」接口用
 
 jobs:
   ping:
@@ -75,3 +78,17 @@ jobs:
             echo "多半是保活表还没建：请在 Supabase SQL Editor 里执行 db/keepalive.sql 后再手动触发一次"
             exit 1
           fi
+
+  stay-enabled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 重置 60 天无活动停用计时
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/supabase-keepalive.yml/enable")
+          echo "enable=$code"
+          # 204 = 成功。失败不影响保活本身，只打日志

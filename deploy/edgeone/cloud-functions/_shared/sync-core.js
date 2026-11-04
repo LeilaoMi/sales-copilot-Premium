@@ -1,6 +1,6 @@
-/* 本文件由 deploy/edgeone/prepare.js 从 ../../sync-core.js 自动生成。
+/* 本文件由 deploy/edgeone/prepare.js 从 ../../js/core/sync-core.js 自动生成。
  * 不要直接改这个文件 —— 改了会被下一次部署覆盖回去。
- * 要改就改主项目的 sync-core.js，然后重新运行 node prepare.js。
+ * 要改就改 js/core/sync-core.js，然后重新运行 node prepare.js。
  *
  * 关于哈希：ESM 环境下拿不到同步的 node:crypto，所以这里走 sync-core 内置的
  * 回退算法。空间名（spaceKey）只是一个不可逆映射，只要在同一个后端内稳定
@@ -48,9 +48,17 @@
       const t = String(a).replace(/^Bearer\s+/i, '').trim();
       if (t) return t;
     }
-    const u = req.url || '';
-    const m = String(u).match(/[?&]token=([^&]+)/);
-    return m ? decodeURIComponent(m[1]) : '';
+    /* 不再接受 ?token=（审计 m8）：查询参数会原样进反向代理和平台的访问日志。
+     * 前端一直走请求头，这里去掉不影响现有客户端。 */
+    return '';
+  }
+  /* 恒定时间比较：逐字节异或，耗时只取决于长度，不随第几位不同而变（审计 m8） */
+  function safeEqual(a, b) {
+    a = String(a); b = String(b);
+    let diff = a.length ^ b.length;
+    const n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i % (a.length || 1)) || 0) ^ (b.charCodeAt(i % (b.length || 1)) || 0);
+    return diff === 0;
   }
 
   /* 校验。两种模式：
@@ -59,7 +67,7 @@
   function authOk(req, fixedToken) {
     const t = tokenOf(req);
     if (!t) return false;
-    if (fixedToken) return t === fixedToken;
+    if (fixedToken) return safeEqual(t, fixedToken);
     return t.length >= 8;
   }
 
@@ -72,14 +80,44 @@
    *   3. 删除是软删除（deleted 标记），所以墓碑也要参与同步 ——
    *      否则 A 设备删了、B 设备还留着，一同步又活过来了。
    * ============================================================ */
+  /* 推送内容的结构校验（2026-11-04 审计 C4）。
+   * 以前服务端只判「data 是对象」，customers 传成字符串时 merge 里的 forEach
+   * 直接抛错——Node 版在 req 'end' 回调里抛，整个进程退出。
+   * 返回 null 表示通过，否则返回一句给客户端看的错误。 */
+  const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+  function validate(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return 'data 必须是对象';
+    for (let i = 0; i < KEYS.length; i++) {
+      const k = KEYS[i], list = data[k];
+      if (list === undefined || list === null) continue;
+      if (!Array.isArray(list)) return k + ' 必须是数组';
+      for (let j = 0; j < list.length; j++) {
+        const r = list[j];
+        if (!r || typeof r !== 'object' || Array.isArray(r)) return k + '[' + j + '] 必须是对象';
+        if (typeof r.id !== 'string' || !ID_RE.test(r.id)) return k + '[' + j + '].id 非法';
+        if (r.updatedAt !== undefined && !isFinite(Number(r.updatedAt))) return k + '[' + j + '].updatedAt 非法';
+      }
+    }
+    if (data.settings !== undefined && data.settings !== null &&
+        (typeof data.settings !== 'object' || Array.isArray(data.settings))) return 'settings 必须是对象';
+    return null;
+  }
+
+  /* 只认数组：旧数据或别的实现写坏了也不至于把合并打挂 */
+  const listOf = (o, k) => (o && Array.isArray(o[k]) ? o[k] : []);
+
+  const TOMB_TTL = 30 * 864e5;
+  const isStaleTomb = r => !!(r && r.deleted && (Number(r.updatedAt) || 0) < Date.now() - TOMB_TTL);
   function merge(a, b) {
     const out = {};
     KEYS.forEach(k => {
       const map = new Map();
-      (a && a[k] ? a[k] : []).forEach(r => { if (r && r.id) map.set(r.id, r); });
-      (b && b[k] ? b[k] : []).forEach(r => {
+      listOf(a, k).forEach(r => { if (r && r.id) map.set(r.id, r); });
+      listOf(b, k).forEach(r => {
         if (!r || !r.id) return;
         const prev = map.get(r.id);
+        /* 对方有、本方没有的过期墓碑不再带回来（审计 m7：压缩数据后被同步拉回） */
+        if (!prev && isStaleTomb(r)) return;
         if (!prev || (Number(r.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) map.set(r.id, r);
       });
       out[k] = Array.from(map.values());
@@ -88,9 +126,16 @@
     const ra = (a && a.savedAt) || 0, rb = (b && b.savedAt) || 0;
     out.savedAt = Math.max(ra, rb);
     out.v = 1;
-    /* settings / deviceId 不是列表，没法按 id 合并，取新的那份 */
-    if (b && b.settings) out.settings = b.settings;
-    else if (a && a.settings) out.settings = a.settings;
+    /* settings 不是列表，没法按 id 合并，整份按 settings.updatedAt 取新的（2026-11-04 审计 M24）。
+     * 以前推送方一律胜出：一台很久没开的设备一推，云端新改的目标、AI 配置就被回退。
+     * 相等时取推送方，与记录合并的 >= 保持一致。 */
+    const sa = a && a.settings, sb = b && b.settings;
+    if (sa && sb) {
+      out.settings = (Number(sb.updatedAt) || 0) >= (Number(sa.updatedAt) || 0) ? sb : sa;
+    } else if (sb || sa) {
+      out.settings = sb || sa;
+    }
+    /* deviceId 只是标识，取推送方的 */
     if (b && b.deviceId) out.deviceId = b.deviceId;
     else if (a && a.deviceId) out.deviceId = a.deviceId;
     return out;
@@ -100,8 +145,8 @@
    * 前端拿它做「云端有没有比我新」的快速判断，不用每次都全量比对。 */
   function calcRevision(data) {
     let max = 0;
-    KEYS.forEach(k => (data && data[k] ? data[k] : []).forEach(r => {
-      if (Number(r.updatedAt) > max) max = Number(r.updatedAt);
+    KEYS.forEach(k => listOf(data, k).forEach(r => {
+      if (r && Number(r.updatedAt) > max) max = Number(r.updatedAt);
     }));
     return max;
   }
@@ -109,12 +154,12 @@
   /* 清点一下数据里有多少条（写日志和排查问题用） */
   function countOf(data) {
     const c = {};
-    KEYS.forEach(k => { c[k] = ((data && data[k]) || []).filter(x => x && !x.deleted).length; });
+    KEYS.forEach(k => { c[k] = listOf(data, k).filter(x => x && !x.deleted).length; });
     return c;
   }
 
   const api = { KEYS: KEYS, spaceKey: spaceKey, tokenOf: tokenOf, authOk: authOk,
-    merge: merge, calcRevision: calcRevision, countOf: countOf };
+    merge: merge, validate: validate, calcRevision: calcRevision, countOf: countOf };
 /* ===== SYNC-CORE-END ===== */
 
 export default api;

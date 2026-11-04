@@ -4,6 +4,8 @@
 >
 > 一个跑在浏览器里的个人销售作战台。没有账号体系也能用，没有服务器也能记，没有月费。
 > 打开网页就能用，关掉网页数据还在。
+>
+> 数据存在本机浏览器里。iPhone / Mac 的 Safari 对没加到主屏幕的网站，7 天没打开可能清掉本地数据；建议添加到主屏幕、开启同步，或定期在设置页导出备份。设置页会显示浏览器是否授予了长期保存。
 
 - 仓库：https://github.com/LeilaoMi/sales-copilot-Premium
 - 技术栈：原生 HTML / CSS / JavaScript，无框架、无 npm 运行时依赖、无 CDN
@@ -63,7 +65,7 @@
 | 话术库 | 48 条内置 + 78 条军火库 | 内置 9 大类语义检索；一键加载「实战军火库」15 类知识型条目，看中哪条存入自己的话术库；赢单输单当场沉淀 |
 | 周报 | 自动归拢一段时间动作 | 本周 / 上周 / 近 7 天 / 本月 / 上月 / 近 30 天六个口径，四段式文本可直接复制发出 |
 | AI 助手 | 可选增强 | 6 个场景：跟进纪要、周报润色、输单复盘、作战建议、客户作战简报、话术军火。需配 Key，不配不影响其他功能 |
-| 团队看板 | 只管理员可见 | 全队 in-flight 金额 / 商机数 / 本月赢单 / 逾期 / 沉默天数，按人汇总，不显示客户具体名字 |
+| 团队看板 | 只管理员可见 | 全队 in-flight 金额 / 商机数 / 本月赢单 / 逾期 / 沉默天数，按人汇总。看板只拉阶段、金额、日期这几个统计字段，不拉客户名和电话；但按数据库权限，管理员**有权**读取同队成员的完整记录 |
 | 设置 | 个人 + 系统配置 | 目标、提成、AI、同步、健康度、提醒、导入导出、PWA，详见 [第 9 节](#9-常见配置项) |
 
 **跨模块能力**：顶栏全局搜索（回车跳到客户库并带上关键词）、`+ 记跟进` / `+ 新客户` 快捷按钮、同步胶囊（状态一目了然，点击立即同步）、浏览器桌面通知（到点主动提醒）、PWA 安装到主屏幕、`Esc` 关闭弹窗。
@@ -94,7 +96,7 @@
 node tools/build.js
 ```
 
-生成 `销冠助手-单文件版.html`（约 519 KB），**落在仓库的上一级目录**（构建脚本刻意不把产物写进仓库）。双击即用，可丢网盘发微信存手机。
+生成 `销冠助手-单文件版.html`（约 540 KB），**落在仓库的上一级目录**（构建脚本刻意不把产物写进仓库）。双击即用，可丢网盘发微信存手机。
 
 单文件版的取舍：没有实战军火库（`file://` 拉不到 `kb/knowledge.json`），不注册 Service Worker（因而无离线缓存与 PWA 安装），不发系统通知。**其余功能与网页版完全一致。**
 
@@ -220,11 +222,11 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 
 ### 5.8 跟进提醒
 
-系统桌面通知只看两件事：已逾期，以及 48 小时内到期。每 30 分钟检查一次，一天最多提醒一轮（按客户 + 到期日去重），正文列前 3 家加「等 N 家」，点击直接跳到客户库。不给通知权限或环境不支持时，退化成页面上的红色角标计数。需 HTTPS。
+系统桌面通知只看两件事：已逾期，以及 48 小时内到期。每 30 分钟检查一次，一天最多提醒一轮（按客户 + 到期日去重），正文列前 3 家加「等 N 家」，点击直接跳到客户库。不给通知权限或环境不支持时，退化成页面上的红色角标计数。需 HTTPS。安卓 Chrome 经 Service Worker 弹出通知；提醒靠页面里的定时检查，**页面（或已安装的 PWA）需要开着**，关掉后不会推送。
 
 ### 5.9 换机与备份
 
-设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入会覆盖当前数据）、载入示例、清空全部业务数据、压缩数据（清掉本地删除墓碑）。
+设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入以导入内容为准；数据码不含 API Key 和同步凭据，备份 JSON 含）、载入示例、清空全部业务数据、压缩数据（清掉 30 天前的删除记录；更近的要留着同步给其他设备）。
 
 ### 5.10 多人、团队与同步
 
@@ -234,14 +236,14 @@ SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享�
 |---|---|---|---|
 | `off` | 关闭（仅存本机） | — | 一台设备，或先试试 |
 | `http` | 自建 / 兼容服务器 | 整包快照 | 自己跑 `server/server.js`，或任何提供 `GET`/`PUT` 快照的接口 |
-| `supabase` | Supabase 空间 | 整包快照 | 一个人多台设备，共用一张 `sales_sync` 表，靠「空间名」隔离 |
+| `supabase` | Supabase 空间 | 整包快照 | 一个人多台设备，共用一张 `sales_sync` 表，靠「空间名」隔离（空间名 ≥16 位，相当于密码；整包不含 AI/搜索 Key） |
 | `cloud` | Supabase 账号 | **逐条记录 + RLS** | 多人 / 团队，数据按账号隔离，管理员能看全队进度 |
 
 规则：本地优先，先写 localStorage 再上云；逐条按 `updatedAt` 最后修改者赢，删除走墓碑标记，所以换设备也能同步「已删掉」。本地改动 4 秒后自动推送，每 60 秒拉一次云端（标签页在后台时不拉），断网重连立刻补一次。`settings.sync` 这段配置永远以本机为准，远端推不动它。
 
 **登录门**：Supabase 地址与 key 出厂内置（`auth.js` 的 `DEFAULT_CLOUD`，用的是 publishable key，本来就会随前端 JS 公开）。新设备首次打开自动弹全屏登录页——登录即自动切到 `cloud` 模式并拉取数据，手机电脑同一份；想纯本地用点「先逛逛」，此后不再自动弹（下次登录成功会清掉该标记）。本机残留的示例数据在首次同步后自动清理（`Store.purgeDemo`），不会混进真实数据。
 
-**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 8 位邀请码发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。共享话术走 `team_scripts` 表。六张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`。
+**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 12 位邀请码（旧的 8 位码继续有效；输错 10 次锁 15 分钟）发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。`team_scripts`（团队共享话术）表已建好，但前端**尚未接入**，目前话术库仍是个人的。七张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`，以及只供邀请码限流用的 `join_attempts`。
 
 ---
 
@@ -265,7 +267,7 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 
 自托管两个模板都已按仓库实际布局写对启动路径（`node server/server.js`）：Docker 在**仓库根**执行 `docker build -t sales-copilot -f deploy/Dockerfile .`（`deploy/_headers` 那份同理，别去改构建产物里的副本）；systemd 照 `deploy/sales-copilot.service` 顶部步骤装，注意 `ProtectSystem=strict` 下要先建好并交出 `data/` 属主，起服务后用 `/api/health` 的 `storage:file` 确认数据真的落盘。
 
-**Supabase 免费项目保活**：`.github/workflows/supabase-keepalive.yml` 每 3 天 ping 一次 `/auth/v1/health`，防止免费项目 7 天不活跃被暂停；检测到休眠会把任务标红提醒去 Dashboard 手动 Restore。注意 GitHub 会在仓库 60 天无提交后自动停用定时任务。
+**Supabase 免费项目保活**：`.github/workflows/supabase-keepalive.yml` 每 3 天往 `keepalive_logs` 表真实写入一行（2026 年起只读 ping 不再稳定计入活跃），防止免费项目 7 天不活跃被暂停；检测到休眠会把任务标红提醒去 Dashboard 手动 Restore。注意 GitHub 会在仓库 60 天无提交后自动停用定时任务。
 
 上线后必做的 6 条验证（SW 是否拿到新代码、清空数据会不会长回来、两账号互相看不见、离线可用、`data/` 未泄露、PWA 安装）逐条写在 **[`docs/DEPLOY.md`](docs/DEPLOY.md)**，其中缓存与排错部分尤其是踩过坑的，别跳过。
 
@@ -278,8 +280,9 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 | 问题 | 答案 |
 |---|---|
 | 数据存哪 | 浏览器 localStorage，键名 `sales_copilot_v1`；开了同步才在云端有一份 |
-| 作者服务器 | 没有。除非你自己部署，否则你的数据不经过任何第三方 |
-| API Key | 只存本机浏览器，直连你填的服务商，不转发不落第三方日志 |
+| 作者服务器 | 登录页默认连的是作者的 Supabase 项目（`js/core/auth.js` 的 `DEFAULT_CLOUD`）：用它登录并开同步，数据就存在作者的项目里。不想这样，在设置里换成你自己的 Supabase，或不登录、只用本机 |
+| API Key | 存本机浏览器，直连你填的服务商；同步时会剔除，不上云；数据码也不带 |
+| AI 与联网情报 | 用到时会把相关客户的名称、备注、跟进内容等发给你配置的 AI 服务商，作战简报还会把公司名发给 Tavily。介意就别开 AI |
 | `data/` | `server/server.js` 的本地快照目录（含令牌与全量客户快照），已 gitignore，永不进库；自托管服务的静态层已把 `/data/*` 一律挡成 403。**跑的是旧版本的话它公网可下载，照 `docs/DEPLOY.md` 5.5 升级并换令牌** |
 | `public/` | 构建产物，已 gitignore，每次构建先清空 |
 | 换浏览器 / 清缓存 | 会没。开同步，或定期导出 JSON / 复制数据码 |
@@ -293,12 +296,12 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 sales-copilot-Premium/
 ├── index.html              唯一页面 + 页签 + 脚本加载顺序（顺序有依赖，注释写明了为什么）
 ├── manifest.json           PWA 清单
-├── sw.js                   Service Worker，缓存桶 sales-copilot-v3
+├── sw.js                   Service Worker，缓存桶 sales-copilot-v5
 ├── vercel.json             Vercel 缓存与项目配置（理由见 DEPLOY.md 第 7 节）
 ├── wrangler.toml           Cloudflare Pages 项目配置（name=sales-copilot-premium，输出 public）
 ├── assets/
 │   ├── css/styles.css      全部样式（约 700 行，CSS 变量驱动）
-│   └── icons/              192 / 512 / apple-touch 三张图标
+│   └── icons/              192 / 512 / 512 maskable / apple-touch 四张图标
 ├── js/
 │   ├── core/               store.js 数据层 · sync.js 四种同步模式与本地合并 · auth.js 登录与账号通道
 │   │                       team.js 团队聚合（只读，内存快照）
@@ -308,13 +311,16 @@ sales-copilot-Premium/
 │   │                       sparring 陪练 · ai AI 接入 · charts 手写 SVG 图表 · notify 提醒
 │   └── ui/                 views.js 渲染 · ui.js 事件与动作
 ├── server/server.js        零依赖同步服务 + 静态站点 + 快照备份
-├── db/supabase.sql         6 张表 + RLS 策略 + security definer 函数（幂等）
+├── db/supabase.sql         业务表 + RLS 策略 + security definer 函数（幂等）
+├── db/keepalive.sql        保活表 keepalive_logs（独立于业务，幂等）
+├── db/new_table_template.sql 新增表时照抄的 RLS 模板
+├── db/migrations/          已有库的增量迁移（按日期命名，幂等）
 ├── kb/knowledge.json       军火库 78 条（tools/gen-kb-seed.py 生成）
-├── tools/                  build.js 构建 · test.js 回归 · gen-kb-seed.py 军火库生成
+├── tools/                  build.js 构建 · test*.js 回归 · rls/ 数据库权限回归 · gen-kb-seed.py 军火库生成
 │                           kb-extra-1/2/3.json 人工补充条目
 ├── deploy/                 Dockerfile · systemd unit · _headers · edgeone/
 ├── docs/DEPLOY.md          上线手册（含验证清单与排错表）
-├── .github/workflows/      supabase-keepalive.yml
+├── .github/workflows/      ci.yml 测试 · supabase-keepalive.yml 保活
 ├── public/                 构建产物，已忽略
 └── data/                   server 本地快照，已忽略
 ```
@@ -337,7 +343,7 @@ sales-copilot-Premium/
 | 商机健康度 | `health.enabled / sensitivity / snoozeDays` | 开 / 1 / 7 天 | 灵敏度 UI 三档 0.7–1.5，代码支持 0.4–2.5 |
 | 云同步 | `sync.mode` | `off` | `off` / `http` / `supabase` / `cloud` |
 | | `sync.endpoint / token` | 空 | 自建后端地址与令牌 |
-| | `sync.url / key / table / space` | 表 `sales_sync`，空间 `default` | 整包快照模式参数；多人靠不同 `space` 隔离 |
+| | `sync.url / key / table / space` | 表 `sales_sync`，空间需自填 | 整包快照模式参数；`space` 至少 16 位，设置里可「随机生成」，多人靠不同 `space` 隔离 |
 | 账号与团队 | `cloud.url / key` | 出厂内置 | 换成你自己的 Supabase 项目；清空即回到内置默认 |
 | 跟进提醒 | `notify.enabled` | 开 | 关掉后只保留页面角标 |
 | 数据管理 | 导出 / 导入 / CSV / 数据码 / 示例 / 清空 | — | 配置与数据分开：清空、重置不会动设置 |
@@ -347,24 +353,36 @@ sales-copilot-Premium/
 | 变量 | 默认 | 作用 |
 |---|---|---|
 | `PORT` | 8080 | 监听端口，绑定 `0.0.0.0` |
-| `SYNC_TOKEN` | 空 | 设了就是专属模式（只认这一个令牌）；不设是令牌即空间模式，≥8 位令牌各自开空间 |
+| `SYNC_TOKEN` | 空 | 设了就是专属模式（只认这一个令牌，须 ≥16 位且不能是模板占位符，否则拒绝启动）；不设是令牌即空间模式，≥8 位令牌各自开空间 |
 | `BACKUP_KEEP` | 10 | 每个空间保留的近期快照份数（最小间隔 `BACKUP_MIN_GAP`） |
 | `BACKUP_MIN_GAP` | 60000 | 两次近期快照的最小间隔（毫秒），防被刷 |
 | `MAX_SPACES` | 200 | 空间数上限，超出返回 503（公开部署的护栏） |
 
-单次 `PUT` 请求体上限 8 MB；无频率限制，只有上面的空间数护栏。EdgeOne 适配器另有 `BLOB_STORE`（默认 `sales-copilot`）、`SYNC_TOKEN`、`MAX_DEVICES`（默认 20）。
+单次 `PUT` 请求体上限 8 MB；无频率限制，只有上面的空间数护栏。EdgeOne 适配器另有 `BLOB_STORE`（默认 `sales-copilot`）、`SYNC_TOKEN`、`MAX_DEVICES`（默认 20，满了无损收拢最旧设备）、`MAX_SPACES`（默认 200）。
 
 ---
 
 ## 10. 本地开发
 
 ```bash
-# 1. 全量语法检查（当前 22 个 JS 文件）
-for f in js/*/*.js server/*.js tools/*.js sw.js; do node --check "$f"; done
+# 1. 全量语法检查
+git ls-files '*.js' | while read -r f; do node --check "$f"; done
 
-# 2. 回归测试：17 项断言，覆盖 buildPrompt 双态 / advise 签名 /
-#    parseSession / digest 桶对齐 / 军火库联合检索
-node tools/test.js
+# 2. 回归测试（推送和 PR 时 GitHub Actions 的 ci.yml 会自动跑同一套）
+node tools/test.js            # AI 提示词 / 复盘 / 周报 / 军火库检索
+node tools/test-server.js     # 自建同步服务：畸形请求、UTF-8 分包、413、CSP、写盘失败
+node tools/test-xss.js        # 页面渲染不被记录内容注入
+node tools/test-sync.js       # 快照同步：空间名、请求头、凭据不上云
+node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
+node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
+node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本地算
+node tools/test-quicklog.js   # 一句话录入：跟进方式、中文数字、意图词、客户匹配、月底/下周
+node tools/test-digest.js     # 会话情报：等客户反馈、字段标签、签字误报、日期不算数量
+node tools/test-health.js     # 健康度缓存：拉下旧记录、删除后及时重算
+node tools/test-minor.js      # Minor 批：墓碑、成交月份、令牌、Azure/超时、按商机算健康度等
+node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
+node tools/test-edgeone.mjs   # EdgeOne 适配器：设备满了无损收拢、空间数上限
+(cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
 
 # 3. 构建两个产物，并起本地服务
 node tools/build.js
@@ -385,7 +403,7 @@ PORT=8080 node server/server.js
 | 改同步协议 | 服务端与 EdgeOne 共用一份协议层 `js/core/sync-core.js`（合并算法、令牌校验、空间映射）：改完到 `deploy/edgeone/` 跑 `node prepare.js` 同步适配器，`--check` 可在 CI 里校验一致性。浏览器侧的合并与四种模式在 `js/core/sync.js`，**两侧语义必须保持一致**，否则同一份数据在设备上和服务端上会算出不同结果 |
 | 改缓存 | `deploy/_headers` 或 `vercel.json`，**别手改 `sw.js` 的 FILES**（构建会重写） |
 
-提交前：`node tools/test.js` 全绿，改功能同步改这份 README 和 `docs/DEPLOY.md`。
+提交前：上面的测试全绿（CI 会再跑一遍），改功能同步改这份 README 和 `docs/DEPLOY.md`。
 
 ---
 

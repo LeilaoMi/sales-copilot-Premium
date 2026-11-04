@@ -43,14 +43,19 @@ window.Sync = (function () {
     S.save();
   }
 
-  /* ---------- 合并：逐条 LWW，墓碑参与 ---------- */
+  /* ---------- 合并：逐条 LWW，墓碑参与 ----------
+   * 浏览器端没有加载 js/core/sync-core.js（它服务 server.js 与 EdgeOne），这里是同一规则的第二份实现，
+   * 改一处必须同步改另一处：tools/test-minor.js 用同一组用例同时跑两份，结果不一致即失败（审计 m9）。 */
   function merge(a, b) {
     const out = {};
     S.SYNC_KEYS.forEach(k => {
       const map = new Map();
       (a[k] || []).forEach(r => map.set(r.id, r));
       (b[k] || []).forEach(r => {
+        if (!S.safeRecord(r)) return;   // 远端快照里 id 不合规的记录不收（审计 M2）
         const prev = map.get(r.id);
+        /* 对方有、本方没有的过期墓碑不再带回来（审计 m7） */
+        if (!prev && r.deleted && (Number(r.updatedAt) || 0) < Date.now() - (S.TOMB_TTL || 30 * 864e5)) return;
         if (!prev || (Number(r.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) map.set(r.id, r);
       });
       out[k] = [...map.values()];
@@ -98,7 +103,9 @@ window.Sync = (function () {
     if (!remote) return 0;
     const local = snapshot();
     const merged = merge(local, remote);
-    const before = S.revision();
+    /* 只比最大 updatedAt 不够：拉下一条比本地都旧的新记录，最大值不变（审计 m3） */
+    const sig = () => S.revision() + ':' + S.SYNC_KEYS.map(k => (S.state[k] || []).length).join(',');
+    const before = sig();
     applying = true;
     try {
       S.state.customers = merged.customers;
@@ -110,11 +117,18 @@ window.Sync = (function () {
       const rs = remote.settings || {};
       const ls = S.state.settings || {};
       if ((Number(rs.updatedAt) || 0) > (Number(ls.updatedAt) || 0)) {
-        S.state.settings = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+        const next = Object.assign({}, rs, { sync: ls.sync || rs.sync });
+        /* 快照模式推送前会剔除凭据（审计 M1），云端包里的 key 是空的；
+         * 采纳云端设置时本机已有的 key 要保留，不能被空值冲掉。 */
+        ['ai', 'tavily'].forEach(k => {
+          const l = ls[k], r = next[k];
+          if (l && l.key && (!r || !r.key)) next[k] = Object.assign({}, r, { key: l.key });
+        });
+        S.state.settings = next;
       }
       S.save();
     } finally { applying = false; }
-    return S.revision() !== before ? 1 : 0;
+    return sig() !== before ? 1 : 0;
   }
 
   /* ---------- 适配器：自建 / 兼容后端 ---------- */
@@ -155,17 +169,37 @@ window.Sync = (function () {
     }
   };
 
-  /* ---------- 适配器：Supabase（Postgres + REST） ---------- */
+  /* ---------- 适配器：Supabase（Postgres + REST） ----------
+   * 2026-11-04 审计 M1：sales_sync 的 RLS 改为只放行 id 等于 x-sync-space
+   * 请求头、且长度 ≥ 16 的那一行。空间名就是这份数据的密码，所以：
+   *   · 每个请求都带 x-sync-space；
+   *   · 空间名过短直接报错，不发请求；
+   *   · 推送的整包剔除 AI/Tavily Key 和同步配置——表里只该有业务数据。 */
+  const MIN_SPACE = 16;
+  function spaceOf(c) {
+    const sp = String(c.space || '');
+    if (sp.length < MIN_SPACE) throw new Error('空间名至少 ' + MIN_SPACE + ' 位（它就是这份数据的密码），请在设置里点「随机生成」');
+    return sp;
+  }
+  function stripSecrets(data) {
+    const st = data.settings;
+    if (!st || typeof st !== 'object') return data;
+    const clean = Object.assign({}, st);
+    delete clean.sync;
+    ['ai', 'tavily'].forEach(k => { if (clean[k]) clean[k] = Object.assign({}, clean[k], { key: '' }); });
+    return Object.assign({}, data, { settings: clean });
+  }
   const supabaseAdapter = {
     label: 'Supabase',
     rowUrl(c) {
-      return `${(c.url || '').replace(/\/$/, '')}/rest/v1/${c.table || 'sales_sync'}?id=eq.${encodeURIComponent(c.space || 'default')}`;
+      return `${(c.url || '').replace(/\/$/, '')}/rest/v1/${c.table || 'sales_sync'}?id=eq.${encodeURIComponent(spaceOf(c))}`;
     },
     headers(c) {
       return {
         'apikey': c.key || '',
         'Authorization': 'Bearer ' + (c.key || ''),
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-sync-space': spaceOf(c)
       };
     },
     async pull(c) {
@@ -178,7 +212,7 @@ window.Sync = (function () {
       const r = await fetch((c.url || '').replace(/\/$/, '') + '/rest/v1/' + (c.table || 'sales_sync'), {
         method: 'POST',
         headers: Object.assign(this.headers(c), { 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
-        body: JSON.stringify({ id: c.space || 'default', data: data, updated_at: new Date().toISOString() })
+        body: JSON.stringify({ id: spaceOf(c), data: stripSecrets(data), updated_at: new Date().toISOString() })
       });
       if (!r.ok) throw new Error('推送失败 HTTP ' + r.status + '（检查表名/RLS 策略）');
       return null;
@@ -211,17 +245,41 @@ window.Sync = (function () {
    *   这里一个权限判断都不写——写了也不可靠，前端判断是能绕过去的。 */
   const cloudAdapter = {
     label: 'Supabase 账号',
+    /* 增量拉取（2026-11-04 审计 M6）。
+     * 以前是 updated_at > 游标、一次 2000 条：触发器用事务时间 now()，一批 500 条
+     * 共用一个时间戳，第 2000 行落在某批中间时，这批剩下的行以后永远拉不到。
+     * 现在：updated_at >= 游标，按 (updated_at, kind, id) 稳定排序逐页拉完；
+     * 下一页从本页最后一个时间戳起拉，并用 offset 跳过已拿到的同时间戳行。
+     * 边界行重复拉到没关系：applyRecords 是逐条 LWW，幂等。 */
     async pull(c) {
-      const since = c.pullCursor || '1970-01-01T00:00:00Z';
-      const rows = await Auth.api(
-        '/rest/v1/records?user_id=eq.' + encodeURIComponent(Auth.userId()) +
-        '&updated_at=gt.' + encodeURIComponent(since) +
-        '&select=kind,id,data,deleted,updated_at&order=updated_at.asc&limit=2000',
-        { method: 'GET' });
-      return { rows: rows || [] };
+      const PAGE = 1000;
+      let since = c.pullCursor || '1970-01-01T00:00:00Z';
+      let offset = 0;
+      const all = [];
+      for (let guard = 0; guard < 500; guard++) {
+        const rows = await Auth.api(
+          '/rest/v1/records?user_id=eq.' + encodeURIComponent(Auth.userId()) +
+          '&updated_at=gte.' + encodeURIComponent(since) +
+          '&select=kind,id,data,deleted,updated_at&order=updated_at.asc,kind.asc,id.asc' +
+          '&limit=' + PAGE + (offset ? '&offset=' + offset : ''),
+          { method: 'GET' });
+        const list = rows || [];
+        for (let i = 0; i < list.length; i++) all.push(list[i]);
+        if (list.length < PAGE) break;
+        const last = list[list.length - 1].updated_at;
+        if (last === since) {
+          offset += PAGE;                 // 整页都是同一时间戳，继续往后翻
+        } else {
+          since = last;
+          offset = list.filter(r => r.updated_at === last).length;
+        }
+      }
+      return { rows: all };
     },
     async push(c, changes) {
       if (!changes.length) return null;
+      /* team_id 以服务端为准（审计 M4：records_20_team 触发器按作者当前团队改写），
+       * 这里照传只是兼容没跑迁移的旧库。 */
       const tid = Auth.teamId() || null;
       const body = changes.map(r => ({
         user_id: Auth.userId(),
@@ -282,12 +340,15 @@ window.Sync = (function () {
         /* 云端返回什么不完全由我们说了算：网关、代理、手写的数据都可能掺进
          * null 或缺字段的行。同步是后台跑的，在这里抛异常没有任何人能看到，
          * 只会让整个同步静默停摆——所以宁可跳过也不能崩。 */
-        if (!r || !r.id || S.SYNC_KEYS.indexOf(r.kind) < 0) return;
+        if (!r || !S.isSafeId(r.id) || S.SYNC_KEYS.indexOf(r.kind) < 0) return;
         if (!Array.isArray(S.state[r.kind])) S.state[r.kind] = [];
         const arr = S.state[r.kind];
         const idx = arr.findIndex(x => x.id === r.id);
         const remote = Object.assign({}, (r.data || {}), { id: r.id, deleted: !!r.deleted });
+        if (!S.safeRecord(remote)) return;   // 关联 id 含非法字符的行同样跳过（审计 M2）
         if (idx < 0) {
+          /* 本地没有、云端是 30 天前的墓碑：多半是本地压缩过，不再拉回（审计 m7） */
+          if (remote.deleted && (Number(remote.updatedAt) || 0) < Date.now() - (S.TOMB_TTL || 30 * 864e5)) return;
           arr.push(remote);
           changed++;
           return;
@@ -354,12 +415,14 @@ window.Sync = (function () {
     }
 
     /* 推：只推上次推之后变过的。
-     * 游标回退 5 秒是刻意的——推送期间用户很可能还在改东西，
-     * 这 5 秒的宽限能保证那些改动不会被漏掉，代价只是下次多推几条。 */
+     * 游标记的是「开始收集改动之前」的时间（2026-11-04 审计 M7）：以前记推完的时间，
+     * 推送超过 5 秒（几千条、手机网络）时，推送期间改的记录永远不会再被推。
+     * 回退 5 秒仍保留，用来吸收本机时钟的小幅跳动，代价只是下次多推几条。 */
     const since = Number(c.pushCursor) || 0;
+    const t0 = Date.now();
     const changes = changedSince(since ? since - 5000 : 0);
     await cloudAdapter.push(c, changes);
-    saveCfg({ pushCursor: Date.now() });
+    saveCfg({ pushCursor: t0 });
 
     return { pulled: n, pushed: changes.length, settingsChanged: setChanged };
   }
@@ -464,7 +527,7 @@ window.Sync = (function () {
   }
 
   return {
-    merge, snapshot, pushPayload, applySnapshot,
+    merge, snapshot, pushPayload, applySnapshot, stripSecrets, MIN_SPACE,
     changedSince, applyRecords, applyCloudSettings, cloudSync,
     sync, start, stop, on, onLocalChange, cfg, saveCfg, getStatus
   };

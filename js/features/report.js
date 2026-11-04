@@ -37,7 +37,9 @@ window.Report = (function () {
     if (v === null || v === undefined || v === '') return '';
     if (typeof v === 'number' && isFinite(v)) return S.fmtDate(new Date(v));
     const s = String(v);
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    /* 只有纯日期才原样返回。带时间的 ISO（at/closedAt 都是 UTC 的 ...Z）以前也直接截前 10 位，
+     * 取到的是 UTC 日期：北京 00:00–08:00 的跟进被算进前一天、上周（审计 M12）。 */
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     const d = new Date(s);
     return isNaN(d.getTime()) ? '' : S.fmtDate(d);
   }

@@ -98,6 +98,39 @@ window.Notify = (function () {
     }).join('、') + (list.length > 3 ? ` 等 ${list.length} 家` : '');
   }
 
+  /* 点通知 → 跳到客户库。ui.js 监听这个事件（页面通知直接派发，SW 通知经 postMessage 转过来）。
+   * 以前写的是 UI.go('customers')，但全局并没有 UI 对象，点了只会把窗口拉到前台。 */
+  function goCustomers() {
+    try { window.focus(); } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent('sc-go', { detail: 'customers' })); } catch (e) {}
+  }
+
+  /* ---------- 弹通知（2026-11-04 审计 M14）----------
+   * Android Chrome 不允许页面直接 new Notification()（抛 Illegal constructor），
+   * 必须走 Service Worker 的 registration.showNotification()。以前异常被吞掉，安卓上永远不弹。
+   * 有 SW 控制页面时优先走 SW（桌面也一样能用），没有才退回页面通知。
+   * 返回 false 表示确定弹不出来（调用方据此不记「已提醒」，改走页面角标）。 */
+  function show(title, body) {
+    const opts = { body: body, tag: 'sales-copilot-followup', icon: 'assets/icons/icon-192.png', data: { view: 'customers' } };
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : null;
+    if (sw && sw.controller && sw.ready) {
+      sw.ready
+        .then(r => r.showNotification(title, opts))
+        .catch(() => pageNotify(title, opts));
+      return true;
+    }
+    return pageNotify(title, opts);
+  }
+  function pageNotify(title, opts) {
+    try {
+      const n = new Notification(title, opts);
+      n.onclick = function () { goCustomers(); n.close(); };
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /* ---------- 主入口 ----------
    * 返回本次实际提醒的条数。没权限 / 没数据 / 今天提醒过了，都返回 0。 */
   function check(force) {
@@ -117,22 +150,7 @@ window.Notify = (function () {
     const firstToday = last.date !== today();
 
     if (granted() && firstToday) {
-      try {
-        const n = new Notification(titleOf(list), {
-          body: bodyOf(list),
-          tag: 'sales-copilot-followup',
-          /* 不加 requireInteraction：让系统自己收，不占着屏幕 */
-        });
-        n.onclick = function () {
-          try { window.focus(); } catch (e) {}
-          if (typeof UI !== 'undefined' && UI.go) UI.go('customers');
-          n.close();
-        };
-      } catch (e) {
-        /* 有些浏览器要求在 Service Worker 里才能创建通知，
-         * 失败了就走页面内角标，不能因为通知弹不出来就当没这事 */
-        return 0;
-      }
+      if (!show(titleOf(list), bodyOf(list))) return 0;
     }
 
     markSent(list.map(x => x.id + '@' + x.at));

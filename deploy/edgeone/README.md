@@ -48,7 +48,14 @@ sync/<令牌空间>/<设备ID>.json     ← 每台设备只写自己这一个文
 
 ### 1. 准备这个目录
 
-把这个 `deploy/edgeone` 目录**整个拷贝**成一个新项目（比如叫 `sales-copilot-sync`）。
+**先在仓库里**跑一次准备脚本（它要读仓库的 `js/core/sync-core.js`，拷出去以后就找不到了，审计 m29）：
+
+```bash
+node deploy/edgeone/prepare.js
+```
+
+看到 `✓ 已生成 cloud-functions/_shared/sync-core.js`（或「已是最新」）后，
+再把这个 `deploy/edgeone` 目录**整个拷贝**成一个新项目（比如叫 `sales-copilot-sync`）。
 它就是一个最小的 EdgeOne 项目骨架：
 
 ```
@@ -63,14 +70,9 @@ sales-copilot-sync/
         └── health.js           ← 线上路由 /api/health
 ```
 
-然后跑一次准备脚本：
-
-```bash
-node prepare.js
-```
-
-看到 `✓ 已生成 cloud-functions/_shared/sync-core.js` 就成了。
-**每次升级销冠助手之后，都要重新跑一次这个脚本**再部署，否则新版本的合并逻辑不会生效。
+**每次升级销冠助手之后，都要先在仓库里重新跑一次 `node deploy/edgeone/prepare.js`，再把生成的
+`cloud-functions/_shared/sync-core.js` 覆盖到你拷出去的项目**，否则新版本的合并逻辑不会生效。
+（仓库里那份生成物已随代码提交，CI 会用 `--check` 确认它是最新的。）
 
 > 这个脚本是把主项目的 `sync-core.js`（合并算法）复制过来。
 > 之所以不在 EdgeOne 里直接引用上层目录的文件：EdgeOne 构建时只保证
@@ -107,7 +109,8 @@ EdgeOne Pages 从 Git 仓库构建。GitHub / GitLab / Gitee 都行，推上去�
 |---|---|---|
 | `SYNC_TOKEN` | 你自己想一个长一点的串 | **填了就进入「专属模式」：只认这一个令牌**。个人自用强烈建议填，别人就算拿到你的同步地址也进不来 |
 | `BLOB_STORE` | `sales-copilot` | Blob 命名空间名字，一般不用改 |
-| `MAX_DEVICES` | `20` | 单个令牌下最多允许几台设备。超了会报 413，防止客户端 bug 把存储写爆 |
+| `MAX_DEVICES` | `20` | 单个令牌下最多保留几台设备的快照。新设备进来时若已满，最旧的设备会被无损收拢进新设备的快照（数据不丢，旧设备下次推送会重新进来） |
+| `MAX_SPACES` | `200` | 多人模式下最多开几个空间，超出新空间返回 503；专属模式不受限 |
 
 改完环境变量要**重新部署一次**才生效。
 
@@ -154,7 +157,7 @@ https://你的域名/api/health
 | | 本地 `node server.js` | EdgeOne 本适配器 |
 |---|---|---|
 | 接口 | `GET /api/sync`、`PUT /api/sync` | 完全相同 |
-| 鉴权 | `X-Sync-Token` / `Bearer` / `?token=` | 完全相同 |
+| 鉴权 | `X-Sync-Token` / `Bearer`（不接受 `?token=`，会进访问日志） | 完全相同 |
 | 合并算法 | `sync-core.js` | 同一个文件生成的副本 |
 | 存储 | 本地 `data/*.json` | Blob |
 | 并发安全 | 单进程，天然安全 | 每台设备独立文件 |
@@ -171,10 +174,11 @@ https://你的域名/api/health
 |---|---|
 | `401 令牌无效` | 设了 `SYNC_TOKEN` 就必须用完全相同的串，注意别带空格；没设的话令牌要 ≥8 位 |
 | 浏览器报 CORS 错误 | 本适配器已经对所有响应加了 CORS 头。如果还报，检查是不是请求被 EdgeOne 的 WAF 拦了 |
-| `413 设备数已达上限` | 同一令牌下有太多设备 ID。通常是客户端每次刷新都生成了新 ID，去 Blob 控制台把 `sync/<空间>/` 下多余的文件删掉 |
+| 日志里频繁出现「已收拢 N 台最旧设备」 | 同一令牌下设备 ID 太多，通常是客户端每次刷新都生成了新 ID。数据不会丢，但建议排查客户端 |
+| `503 空间数已达上限` | 多人模式空间数到了 `MAX_SPACES`，调大或清理 Blob 里不用的 `sync/<空间>/` |
 | 同步成功但另一台看不到 | 先访问 `/api/health` 带上 `X-Sync-Token` 看 `devices` 是不是 ≥2。只有 1 说明第二台根本没推上来 |
 | 数据对不上 / 少了几条 | 确认两台设备跑的是同一版本的销冠助手，然后各点一次「立即同步」让它收敛 |
-| 改了 `sync-core.js` 没生效 | 忘了跑 `node prepare.js` |
+| 改了 `sync-core.js` 没生效 | 忘了在仓库里跑 `node deploy/edgeone/prepare.js` 并把生成物覆盖过去 |
 
 ---
 

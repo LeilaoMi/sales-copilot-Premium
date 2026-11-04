@@ -26,12 +26,15 @@ window.Digest = (function () {
   const SPEAKER_COLON = /^([^\s:：]{1,16})\s*[:：]\s*(.*)$/;
   const SPEAKER_EXPORT = /^(.{1,20}?)\s+\d{1,2}:\d{2}$/;
 
+  /* 「时间：下周五」「地点：xx」这类是字段标签，不是说话人（审计 m2） */
+  const FIELD_LABEL = /^(时间|日期|地点|地址|电话|手机|邮箱|备注|主题|议题|会议|金额|预算|价格|报价|数量|联系人|结果|结论|下一步|待办|附件|链接|网址|公司|客户|项目|需求|进度|状态|截止|期限|说明|内容|事项|要求|总结|小结|合计|总计|工期)$/;
   function splitLines(text) {
     const raw = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const out = [];
     let pending = null;
     raw.forEach(line => {
       let m = line.match(SPEAKER_COLON);
+      if (m && FIELD_LABEL.test(m[1])) m = null;
       if (m) {
         out.push({ who: m[1], text: m[2], raw: line });
         return;
@@ -106,9 +109,17 @@ window.Digest = (function () {
     return m ? m[1] : '';
   }
 
-  /* 把一条承诺归到「我的活」还是「他的活」。
-   * 依据：主语是谁 + 说话人是谁。句子里的「您」在客户口中指销售，反之亦然。 */
+  /* 把一条承诺归到「我的活」「他的活」，还是「我请他做、等他反馈」。
+   * 依据：主语是谁 + 说话人是谁。句子里的「您」在客户口中指销售，反之亦然。
+   * 审计 m2：以前只返回 mine / theirs，asks 分支永远走不到，
+   * 我说「您那边先安排一下试用环境」被记成「客户承诺」——客户其实什么都没答应。
+   * 现在：我说出口、落在客户身上的事 → asks（等客户反馈）；
+   *       客户自己说要做的 → theirs（客户承诺）。 */
   function bucketOf(who, t) {
+    const b = bucketRaw(who, t);
+    return (b === 'theirs' && who === 'me') ? 'asks' : b;
+  }
+  function bucketRaw(who, t) {
     const subj = subjectOf(t);
     const isMeSide = (p) => p === '我' || p === '我们' || p === '咱' || p === '俺' || p === '本人';
     const isYouSide = (p) => p === '您' || p === '你' || p === '你们' || p === '贵司' || p === '贵公司';
@@ -125,18 +136,26 @@ window.Digest = (function () {
   }
 
   /* ---------- 金额与数量 ---------- */
-  const MONEY = /(\d+(?:\.\d+)?)\s*(万|w|W|千万|百万|千|k|K|元|块|块钱|美金|美元| euro|欧元)/g;
-  const COUNT = /(\d+(?:\.\d+)?)\s*(个|套|台|人|家|店|条|年|月|期|次|份|张|把|箱|吨|米|平)/g;
+  /* 审计 m26：以前缺「亿」，且「涉及金额」直接比数字——「50万」和「3000元」比出来 3000 更大。
+   * 现在每条带上折算成元的 yuan，摘要按它取最大。外币不折算汇率，只按原数比。 */
+  const MONEY = /(\d+(?:\.\d+)?)\s*(亿|千万|百万|万|w|W|千|k|K|元|块钱|块|美金|美元| euro|欧元)/g;
+  const UNIT_YUAN = { '亿': 1e8, '千万': 1e7, '百万': 1e6, '万': 1e4, w: 1e4, W: 1e4, '千': 1e3, k: 1e3, K: 1e3 };
+  /* 「3月」「2026年」是日期不是数量（审计 m2）：月只认「个月」，年排除四位年份和「年…月」 */
+  const COUNT = /(\d+(?:\.\d+)?)\s*(个月|个|套|台|人|家|店|条|年(?!\d{1,2}月)|期|次|份|张|把|箱|吨|米|平)/g;
 
   /* ---------- 危险信号 ---------- */
   const RISK_WORDS = [
     { k: 'comparison', re: /(对比|比较|比价|别家|其他家|友商|竞品|另一家|货比三家)/, msg: '他在横向对比 —— 这单有竞争者，报价和差异化要提前备好' },
     { k: 'hesitate', re: /(再看看|再想想|考虑|商量|研究|不一定|再说吧|回头说|待定)/, msg: '他犹豫了 —— 别等，24 小时内补一次价值信息' },
     { k: 'budget', re: /(没预算|预算不够|超预算|没钱|资金紧|明年再说)/, msg: '预算有问题 —— 要么换时间轴，要么砍范围保住单子' },
-    { k: 'boss', re: /(领导|老板|汇报|上会|审批|拍板|签字|决策)/, msg: '还没到决策人 —— 要一份能直接转给领导的一页纸材料' },
+    /* 「来公司签字」「合同已签字」是推进，不是卡在决策人；只有「等/要/得…签字」才算（审计 m2） */
+    { k: 'boss', re: /(领导|老板|汇报|上会|审批|拍板|决策|(?:等|要|得|需要|还没)[^，。]{0,6}签字)/, msg: '还没到决策人 —— 要一份能直接转给领导的一页纸材料' },
     { k: 'cold', re: /(不急|不着急|以后再说|慢慢来|暂缓|搁置|等等|等一等)/, msg: '他在拖 —— 拖单大多会黄，得给他一个「现在做」的理由' },
     { k: 'lost_signal', re: /(算了|不要了|不做了|先不|暂不需要|取消|放弃)/, msg: '出现退意信号 —— 这单可能正在流失，建议今天内确认真实原因' }
   ];
+
+  const BOSS_RISK = RISK_WORDS.filter(r => r.k === 'boss')[0].re;
+  const BOSS_EXTRA = /(批准|老总|董事长|委员会|流程)/;
 
   /* =============================================================
    * 主函数
@@ -204,7 +223,9 @@ window.Digest = (function () {
         const it = PB.intentsOf(t);
         const OBJ = ['price', 'hesitate', 'compare', 'boss', 'budget', 'urgenNow',
           'risk', 'deploy', 'trust', 'security', 'trial', 'contract', 'diy'];
-        const hit = Object.keys(it).filter(k => OBJ.indexOf(k) >= 0);
+        let hit = Object.keys(it).filter(k => OBJ.indexOf(k) >= 0);
+        /* 只因「签字」命中决策人的，按上面 RISK 的口径再判一次（审计 m2） */
+        if (hit.indexOf('boss') >= 0 && !BOSS_RISK.test(t) && !BOSS_EXTRA.test(t)) hit = hit.filter(k => k !== 'boss');
         if (hit.length && who !== 'me') {
           objections.push({ text: t, kind: PB.intentLabel(hit.slice(0, 2)), keys: hit, at: when });
         }
@@ -219,10 +240,11 @@ window.Digest = (function () {
       let m;
       MONEY.lastIndex = 0;
       while ((m = MONEY.exec(t)) !== null) {
-        money.push({ num: Number(m[1]), unit: m[2], text: t });
+        money.push({ num: Number(m[1]), unit: m[2], yuan: Number(m[1]) * (UNIT_YUAN[m[2]] || 1), text: t });
       }
       COUNT.lastIndex = 0;
       while ((m = COUNT.exec(t)) !== null) {
+        if (m[2].charAt(0) === '年' && Number(m[1]) >= 1900) continue;
         counts.push({ num: Number(m[1]), unit: m[2], text: t });
       }
 
@@ -286,7 +308,8 @@ window.Digest = (function () {
       if (label) parts.push('客户顾虑：' + label);
     }
     if (r.money.length) {
-      const mx = r.money.reduce((a, b) => (b.num > a.num ? b : a), r.money[0]);
+      const val = x => (x.yuan != null ? x.yuan : x.num);
+      const mx = r.money.reduce((a, b) => (val(b) > val(a) ? b : a), r.money[0]);
       parts.push('涉及金额 ' + mx.num + mx.unit);
     }
     if (r.nextSteps.length) {

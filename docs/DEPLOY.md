@@ -107,7 +107,7 @@ Supabase 是同步数据的"存放地"。免费版对个人完全够用。
 | `profiles` | 用户与角色（owner / admin / member）、所属团队、显示名 |
 | `teams` | 团队本身与 8 位邀请码 |
 | `records` | 你的客户 / 商机 / 跟进 / 话术，一条记录一行，按 `user_id` 隔离 |
-| `team_scripts` | 团队共享话术 |
+| `team_scripts` | 团队共享话术（表已建，前端尚未接入） |
 | `user_settings` | 你的个人设置（含 AI Key），只有你自己读得到 |
 | `sales_sync` | 整包快照模式（同步方式选「Supabase 空间」时）用的那一张表 |
 
@@ -209,12 +209,26 @@ npx wrangler pages deploy public
 2. **Project URL** 粘贴 2.2 里复制的那个
 3. **anon key** 粘贴 2.2 里复制的那个
 4. **表名** 保持 `sales_sync`（整包快照模式）
-5. **空间名** 保持 `default`
-   > 想要多个人各自独立？每个人填**不同的空间名**就行。
-   > 填一样的会互相看到 —— 整包快照不认账号，只认空间名。
+5. **空间名** 点「随机生成」（至少 16 位），其他设备照抄同一个
+   > 空间名就是这份数据的密码：数据库只放行请求头 `x-sync-space` 与之相同的那一行，
+   > 没有它谁也列不出、读不到。`default` 这类短名字不再被接受。
+   > 想要多个人各自独立？每个人生成**各自的空间名**就行。
+   > 老库升级：在 SQL Editor 执行 `db/migrations/2026-11-04-sales-sync-space.sql`。
 6. 点 **保存并连接**，再点 **立即同步**
 
 同步胶囊变绿，就通了。
+
+### 绑了自定义域名的话：关掉会往页面里塞脚本的功能
+
+`pages.dev` 默认不受影响。把域名接到 Cloudflare 后，**Bot Fight Mode / JavaScript Detections**、
+**Rocket Loader**、**Email Address Obfuscation** 这几项会往 HTML 里注入一段内联脚本
+（`/cdn-cgi/challenge-platform/...`、`__CF$cv$params`）。本应用的安全头只允许加载自家的脚本
+（`deploy/_headers` 里的 `script-src 'self'`），注入的内联脚本会被浏览器拦下，控制台报 CSP 错误；
+挑战失败时还可能反复转圈。
+
+到 Cloudflare 控制台对应域名：**Security → Bots** 关掉 Bot Fight Mode（或在 Configure 里关 JavaScript Detections），
+**Speed → Optimization** 关掉 Rocket Loader，**Scrape Shield** 关掉 Email Address Obfuscation。
+验证：浏览器打开站点，查看页面源代码，搜不到 `cdn-cgi/challenge-platform` 就对了。（审计 m21）
 
 ---
 
@@ -243,11 +257,11 @@ npx wrangler pages deploy public
 
 细节全在 [`deploy/edgeone/README.md`](../deploy/edgeone/README.md)，这里只给主干和最容易错的点：
 
-1. 把 `deploy/edgeone/` 整个目录复制成你的站点仓库（它是个独立的小项目）
-2. `node prepare.js` —— **每次升级都要跑**，理由见下
+1. 先在本仓库里跑 `node deploy/edgeone/prepare.js` —— **每次升级都要跑**，理由见下（拷出去再跑会找不到源文件）
+2. 再把 `deploy/edgeone/` 整个目录复制成你的站点仓库（它是个独立的小项目）
 3. `npm install`（全仓库唯一有 npm 依赖的地方：`@edgeone/pages-blob`，需 Node ≥ 18）
 4. 推到 Git → EdgeOne 控制台建 Pages 项目：框架选「其他 / 无」，安装命令 `npm install`，构建命令留空
-5. 函数环境变量：`BLOB_STORE`（存储桶名，默认 `sales-copilot`）、`SYNC_TOKEN`（留空 = 多人模式，令牌即空间）、`MAX_DEVICES`（默认 20，超了返回 413）。改完要重新部署一次才生效
+5. 函数环境变量：`BLOB_STORE`（存储桶名，默认 `sales-copilot`）、`SYNC_TOKEN`（留空 = 多人模式，令牌即空间）、`MAX_DEVICES`（默认 20，满了把最旧设备无损收拢）、`MAX_SPACES`（默认 200，多人模式新空间超出返回 503）。改完要重新部署一次才生效
 6. 验：浏览器开 `https://你的域名/api/health`，看到 `"ok":true` 且 `blobReady` 为真
 7. 回应用「设置 → 云同步」，同步方式选 **自建 / 兼容服务器**，地址填 `https://你的域名/api/sync`
 
@@ -255,7 +269,7 @@ npx wrangler pages deploy public
 > 就是 `js/core/sync-core.js`。EdgeOne 云函数是 ESM，用不了那份 CJS，所以脚本按
 > `SYNC-CORE-BEGIN/END` 标记把它抽出来生成 ESM 副本。你改了主项目的 sync-core 却忘了重跑
 > `prepare.js`，两边算法就开始漂移 —— 表现是同一份数据在设备和云端各算出不同结果，极难查。
-> CI 里用 `node prepare.js --check` 当闸门，不一致直接红。
+> CI 里用 `node deploy/edgeone/prepare.js --check` 当闸门，不一致直接红。
 
 ---
 
@@ -292,7 +306,7 @@ SYNC_TOKEN=一串长随机字符 PORT=8080 node server/server.js
 # Docker（在仓库根执行；模板在 deploy/ 下，必须用 -f 指过来）
 docker build -t sales-copilot -f deploy/Dockerfile .
 docker run -d --name sales-copilot -p 8080:8080 \
-  -e SYNC_TOKEN=你自己的长令牌 -v $(pwd)/sync-data:/app/data \
+  -e SYNC_TOKEN=$(openssl rand -hex 16) -v sales-copilot-data:/app/data \
   --restart unless-stopped sales-copilot
 
 # systemd：照 deploy/sales-copilot.service 顶部的安装步骤走
@@ -525,5 +539,5 @@ curl -s -o /dev/null -w "%{http_code}\n" http://IP:8080/data/backups/
 | `deploy/sales-copilot.service` | systemd 守护模板（含 `ProtectSystem=strict` 加固与 data 属主步骤） |
 | `deploy/edgeone/` | 腾讯云 EdgeOne Pages 适配器（云函数提供 `/api/sync` + `/api/health`），自带 README |
 | `db/supabase.sql` | Supabase 6 张表 + RLS 策略 + security definer 函数，幂等可重跑 |
-| `.github/workflows/supabase-keepalive.yml` | 每 3 天 ping 一次免费 Supabase 项目防休眠；检测到暂停会标红提醒 |
+| `.github/workflows/supabase-keepalive.yml` | 每 3 天往 `keepalive_logs` 写一行，防止免费 Supabase 项目休眠；检测到暂停会标红提醒 |
 | `docs/DEPLOY.md` | 你正在看的这份 |

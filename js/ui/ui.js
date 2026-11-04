@@ -22,17 +22,56 @@
   let pendingDebrief = null;
 
   /* ---------- Toast ---------- */
-  function toast(msg, type) {
+  function toast(msg, type, ms) {
     const el = document.createElement('div');
     el.className = 'toast ' + (type || '');
     el.textContent = msg;
     $('#toasts').appendChild(el);
-    setTimeout(() => el.remove(), 2400);
+    setTimeout(() => el.remove(), ms || 2400);
+  }
+
+  /* 存储层的事件（2026-11-04 审计 M9 / M10 / M11）：以前写满、损坏都一声不吭。 */
+  let lastSaveErrToast = 0;
+  function onStoreEvent(type, info) {
+    if (type === 'corrupt') {
+      toast(info.backupKey
+        ? '本机数据读取失败，原数据已另存（' + info.backupKey + '），当前为空库。开了同步的话，同步一次即可找回。'
+        : '本机数据读取失败，空间不足无法另存，已暂停写入以保护原数据。请先开同步找回，或在设置页导入备份。',
+        'err', 10000);
+    } else if (type === 'save-error') {
+      const now = Date.now();
+      if (now - lastSaveErrToast < 30000) return;   // 连续输入时别刷屏
+      lastSaveErrToast = now;
+      toast('保存失败：浏览器存储空间不足，刚才的改动刷新后会丢失。请尽快在设置页导出备份。', 'err', 8000);
+    } else if (type === 'save-ok') {
+      toast('本机存储已恢复正常', 'ok');
+    } else if (type === 'external') {
+      /* 别的标签页改了数据：重绘当前页，免得在旧数据上继续改 */
+      render();
+      if (window.Sync) renderSyncStatus();
+    } else if (type === 'persist') {
+      if (view === 'settings') render();
+    }
   }
 
   /* ---------- 模态 ---------- */
+  /* 审计 m14：关弹窗后焦点回到打开它的按钮；Tab 键不跑到遮罩后面的页面上 */
+  let modalOpener = null;
+  function trapFocus(e) {
+    if (e.key !== 'Tab') return;
+    const bd = $('#modal-backdrop');
+    if (!bd || bd.hidden) return;
+    const els = Array.from(document.querySelectorAll('#modal a[href],#modal button,#modal input,#modal select,#modal textarea,#modal [tabindex]'))
+      .filter(x => !x.disabled && x.type !== 'hidden' && x.offsetParent !== null);
+    if (!els.length) return;
+    const first = els[0], last = els[els.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  document.addEventListener('keydown', trapFocus);
   function openModal(html) {
     const bd = $('#modal-backdrop');
+    if (bd.hidden) modalOpener = document.activeElement;
     $('#modal').innerHTML = html;
     bd.hidden = false;          // 双保险：不依赖 CSS 的 [hidden] 规则
     bd.style.display = 'flex';
@@ -47,6 +86,8 @@
     document.body.classList.remove('modal-open');
     $('#modal').innerHTML = '';
     formSubmit = null;
+    if (modalOpener && document.contains(modalOpener) && modalOpener.focus) { try { modalOpener.focus(); } catch (e) {} }
+    modalOpener = null;
   }
 
   /* 带标题的通用弹窗。
@@ -94,7 +135,7 @@
     const req = f.required ? ' required' : '';
     let inner = '';
     if (f.type === 'select') {
-      inner = `<select name="${f.name}"${req}>` +
+      inner = `<select name="${E(f.name)}"${req}>` +
         (f.placeholder ? `<option value="">${E(f.placeholder)}</option>` : '') +
         (f.options || []).map(o => {
           const value = typeof o === 'object' ? o.value : o;
@@ -102,9 +143,9 @@
           return `<option value="${E(value)}" ${String(v) === String(value) ? 'selected' : ''}>${E(label)}</option>`;
         }).join('') + '</select>';
     } else if (f.type === 'textarea') {
-      inner = `<textarea name="${f.name}" placeholder="${E(f.placeholder || '')}"${req}>${E(v)}</textarea>`;
+      inner = `<textarea name="${E(f.name)}" placeholder="${E(f.placeholder || '')}"${req}>${E(v)}</textarea>`;
     } else {
-      inner = `<input type="${f.type || 'text'}" name="${f.name}" value="${E(v)}"
+      inner = `<input type="${f.type || 'text'}" name="${E(f.name)}" value="${E(v)}"
         placeholder="${E(f.placeholder || '')}"${req}${f.min != null ? ' min=' + f.min : ''}${f.step ? ' step=' + f.step : ''}>`;
     }
     return `<div class="field"><label>${E(f.label)}</label>${inner}${f.hint ? `<div class="hint">${E(f.hint)}</div>` : ''}</div>`;
@@ -275,8 +316,11 @@
       ],
       onSubmit: v => {
         if (!v.title || !v.customerId) { toast('名称和客户必填', 'err'); return; }
-        v.amount = Number(v.amount) || 0;
-        v.updatedAt = new Date().toISOString();
+        /* 审计 m26：留空以前静默变成 0，这单在回款预测里就成了 0 元；负数也照收。 */
+        const amt = String(v.amount == null ? '' : v.amount).trim();
+        if (amt === '' || !isFinite(Number(amt)) || Number(amt) < 0) { toast('请填金额（不确定就先填估计值）', 'err'); return; }
+        v.amount = Number(amt);
+        v.updatedAt = Date.now();
         if (isNew) {
           v.createdAt = new Date().toISOString();
           const nd = S.insert('deals', v);
@@ -350,7 +394,7 @@
     const sel = `
       <select id="dg-cust" class="dg-sel">
         <option value="">— 选择客户 —</option>
-        ${S.list('customers').map(x => `<option value="${x.id}" ${c && c.id === x.id ? 'selected' : ''}>${E(x.name)}${x.contact ? ' · ' + E(x.contact) : ''}</option>`).join('')}
+        ${S.list('customers').map(x => `<option value="${E(x.id)}" ${c && c.id === x.id ? 'selected' : ''}>${E(x.name)}${x.contact ? ' · ' + E(x.contact) : ''}</option>`).join('')}
       </select>`;
 
     openModal(`
@@ -691,7 +735,11 @@
       if (!boardData) loadBoard();      // 第一次进来才拉，拉完只刷这一屏
     }
 
-    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+    $$('.tab').forEach(t => {
+      const on = t.dataset.view === view;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');   // 审计 m14：读屏要知道当前页签
+    });
 
     refreshTeamTab();
 
@@ -997,7 +1045,7 @@
 
     'clear-filter': () => { filters.customers = { q: '', level: '', status: '', sort: 'next' }; const _gs = $('#global-search'); if (_gs) _gs.value = ''; render(); },
     'export-csv': () => download(S.customersToCSV(), `客户清单_${S.todayStr()}.csv`, 'text/csv;charset=utf-8'),
-    'export-json': () => download(S.exportJSON(), `销冠助手备份_${S.todayStr()}.json`, 'application/json'),
+    'export-json': () => download(S.exportJSON({ secrets: true }), `销冠助手备份_${S.todayStr()}.json`, 'application/json'),
     'import-json': () => {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.accept = '.json,application/json';
@@ -1021,7 +1069,7 @@
       const s = S.state.settings;
       s.owner = readVal('set-owner') || '我';
       s.monthlyTarget = Number(readVal('set-target')) || 0;
-      s.commissionRate = Number(readVal('set-rate')) || 0;
+      s.commissionRate = Math.min(100, Math.max(0, Number(readVal('set-rate')) || 0));   // 审计 m26：输入框的 max=100 挡不住手打
       S.save(); toast('设置已保存', 'ok'); render();
     },
 
@@ -1380,6 +1428,14 @@
       toast(r.ok ? '同步完成' : '同步失败：' + (r.msg || '未知错误'), r.ok ? 'ok' : 'err');
       if (r.ok) render(); else renderSyncStatus();
     },
+    'sb-space-gen': () => {
+      const el = $('#sb-space');
+      if (!el) return;
+      const b = new Uint8Array(12);
+      crypto.getRandomValues(b);
+      el.value = 'sp-' + Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+      toast('已生成，其他设备填同一个空间名即可', 'ok');
+    },
     'save-sync': async () => {
       const mode = $('#sync-mode') ? $('#sync-mode').value : 'off';
       const patch = { mode: mode };
@@ -1391,8 +1447,9 @@
         patch.url = readVal('sb-url');
         patch.key = $('#sb-key') ? $('#sb-key').value.trim() : '';
         patch.table = readVal('sb-table') || 'sales_sync';
-        patch.space = readVal('sb-space') || 'default';
+        patch.space = readVal('sb-space');
         if (!patch.url || !patch.key) { toast('请填写 Project URL 和 anon key', 'err'); return; }
+        if (patch.space.length < Sync.MIN_SPACE) { toast('空间名至少 ' + Sync.MIN_SPACE + ' 位，可点「随机生成」', 'err'); return; }
       }
       Sync.saveCfg(patch);
       if (mode === 'off') {
@@ -1422,7 +1479,7 @@
     },
     'sync-purge': () => {
       const n = S.purge();
-      toast(n ? `已清理 ${n} 条墓碑记录` : '没有可清理的墓碑记录', 'ok');
+      toast(n ? `已清理 ${n} 条 30 天前的删除记录` : '没有 30 天前的删除记录可清理（更近的要留着同步给其他设备）', 'ok');
       render();
     },
     'fill-public-endpoint': () => {
@@ -1537,13 +1594,13 @@
     },
     'copy-datacode': () => {
       const code = btoa(unescape(encodeURIComponent(S.exportJSON())));
-      copyText(code).then(ok => toast(ok ? '数据码已复制（微信发给自己即可跨设备迁移）' : '复制失败', ok ? 'ok' : 'err'));
+      copyText(code).then(ok => toast(ok ? '数据码已复制（不含 API Key 和同步凭据，微信发给自己即可跨设备迁移）' : '复制失败', ok ? 'ok' : 'err'));
     },
     'paste-datacode': () => {
       openForm({
         title: '粘贴数据码导入',
         fields: [{ name: 'code', label: '数据码', type: 'textarea', required: true, placeholder: '把之前复制的数据码粘到这里' }],
-        submitText: '导入（会覆盖当前数据）',
+        submitText: '导入（以导入内容为准）',
         onSubmit: d => {
           try {
             const json = decodeURIComponent(escape(atob(d.code.trim())));
@@ -2028,6 +2085,7 @@
 
   function init() {
     keepTabsUnderTopbar();
+    if (S.on) S.on(onStoreEvent);    // 必须在 load 之前订阅，否则启动时的「数据损坏」提示收不到
     S.load();
     /* 账号初始化必须在 render 之前：登录态决定设置页显示哪一块。
      * 没登录时这里全是空操作，不会发任何请求，也不会弹出任何东西。 */
@@ -2078,7 +2136,13 @@
     // 注册 Service Worker，支持 PWA 离线使用
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(e => console.log('SW 注册失败（file:// 环境属于正常）:', e));
+      /* 点了 SW 弹出的跟进提醒（notify.js / sw.js）→ 跳到客户库 */
+      navigator.serviceWorker.addEventListener('message', ev => {
+        const d = ev.data || {};
+        if (d.type === 'sc-go' && d.view === 'customers') switchView('customers');
+      });
     }
+    window.addEventListener('sc-go', ev => { if (ev.detail === 'customers') switchView('customers'); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

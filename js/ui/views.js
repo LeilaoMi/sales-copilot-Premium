@@ -57,20 +57,20 @@ window.Views = (function () {
         </div>
         <div class="mobile-actions" style="gap:4px;margin:0">
           ${c.phone ? `<a class="btn btn-sm" href="tel:${E(c.phone)}">电话</a>` : ''}
-          ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${c.id}">微信</button>` : ''}
-          <button class="btn btn-sm" data-action="log-followup" data-id="${c.id}">跟进</button>
+          ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${E(c.id)}">微信</button>` : ''}
+          <button class="btn btn-sm" data-action="log-followup" data-id="${E(c.id)}">跟进</button>
         </div>
       </div>`;
     }).join('');
 
     /* 漏斗 */
     const funnelItems = st.funnel.map(f => ({ name: f.name, value: f.count, color: f.color, amount: f.amount }));
-    const monthWonCount = S.state.deals.filter(d => d.stage === 'won' && S.monthKey(d.closedAt) === st.mk).length;
+    const monthWonCount = S.list('deals').filter(d => d.stage === 'won' && d.closedAt && S.monthKey(d.closedAt) === st.mk).length;   // 审计 m6：不算已删除的、不把缺成交日的算进本月
 
     /* 本月目标卡片 */
     const gaptxt = st.rate >= 1
       ? `已超额 ${S.moneyFull(st.revenue - st.target)}`
-      : `还差 ${S.moneyFull(st.target - st.revenue)}，剩 ${daysLeftInMonth()} 天`;
+      : `还差 ${S.moneyFull(st.target - st.revenue)}，剩 ${daysLeftInMonth() + 1} 天`;
 
     return `
     ${morningBrief()}
@@ -253,7 +253,7 @@ window.Views = (function () {
         sub: c.phone || '',
         urgent: dd < 0,
         btns: (c.phone ? `<a class="btn btn-sm btn-primary" href="tel:${E(c.phone)}">打电话</a>` : '') +
-          `<button class="btn btn-sm" data-action="log-followup" data-id="${c.id}">记跟进</button>`
+          `<button class="btn btn-sm" data-action="log-followup" data-id="${E(c.id)}">记跟进</button>`
       };
     } else if (att.length) {
       const rankedDeals = att.slice().sort((a, b) => dealUrgency(b.h) - dealUrgency(a.h));
@@ -265,7 +265,7 @@ window.Views = (function () {
         sub: act ? act.action : '',
         urgent: h.level === 'risk',
         btns: act
-          ? `<button class="btn btn-sm btn-primary" data-action="health-act" data-id="${deal.id}">${healthBtnText(act)}</button>`
+          ? `<button class="btn btn-sm btn-primary" data-action="health-act" data-id="${E(deal.id)}">${healthBtnText(act)}</button>`
           : `<button class="btn btn-sm" data-action="goto-deals">去看板</button>`
       };
     }
@@ -324,8 +324,8 @@ window.Views = (function () {
           ${act ? `<div class="h-act">下一步：${E(act.action)}</div>` : ''}
         </div>
         <div class="h-btns">
-          ${act ? `<button class="btn btn-sm btn-primary" data-action="health-act" data-id="${deal.id}">${btnText}</button>` : ''}
-          <button class="btn btn-sm" data-action="health-snooze" data-id="${deal.id}" title="${cfg.snoozeDays} 天内不再提示">知道了</button>
+          ${act ? `<button class="btn btn-sm btn-primary" data-action="health-act" data-id="${E(deal.id)}">${btnText}</button>` : ''}
+          <button class="btn btn-sm" data-action="health-snooze" data-id="${E(deal.id)}" title="${E(cfg.snoozeDays)} 天内不再提示">知道了</button>
         </div>
       </div>`;
     }).join('');
@@ -431,12 +431,12 @@ window.Views = (function () {
     const statusOptions = ['<option value="">全部状态</option>'].concat(
       S.CUSTOMER_STATUS.map(s => `<option value="${s}" ${ctx.status === s ? 'selected' : ''}>${s}</option>`)).join('');
     const levelOptions = ['<option value="">全部分级</option>'].concat(
-      S.LEVELS.map(l => `<option value="${l.id}" ${ctx.level === l.id ? 'selected' : ''}>${l.name}</option>`)).join('');
+      S.LEVELS.map(l => `<option value="${E(l.id)}" ${ctx.level === l.id ? 'selected' : ''}>${l.name}</option>`)).join('');
 
     const mobileContact = c => `
       <div class="mobile-actions">
         ${c.phone ? `<a class="btn btn-sm" href="tel:${E(c.phone)}">打电话</a>` : ''}
-        ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${c.id}">复制微信号</button>` : ''}
+        ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${E(c.id)}">复制微信号</button>` : ''}
       </div>`;
 
     const body = rows.map(c => {
@@ -446,7 +446,7 @@ window.Views = (function () {
           <div>
             <div style="display:flex;align-items:center;gap:8px">
               ${levelTag(c.level)}
-              <a href="#" data-action="open-customer" data-id="${c.id}"><strong>${E(c.name)}</strong></a>
+              <a href="#" data-action="open-customer" data-id="${E(c.id)}"><strong>${E(c.name)}</strong></a>
             </div>
             <span class="sub">${E(c.industry || '—')} · 来源：${E(c.source || '—')}</span>
           </div>
@@ -470,9 +470,9 @@ window.Views = (function () {
         <td data-label="操作" class="right nowrap">
           <div class="row-actions">
             <a class="btn btn-sm" href="tel:${E(c.phone || '')}" style="${c.phone ? '' : 'display:none'}">电话</a>
-            <button class="btn btn-sm" data-action="log-followup" data-id="${c.id}">跟进</button>
-            <button class="btn btn-sm" data-action="edit-customer" data-id="${c.id}">编辑</button>
-            <button class="link danger" data-action="del-customer" data-id="${c.id}">删除</button>
+            <button class="btn btn-sm" data-action="log-followup" data-id="${E(c.id)}">跟进</button>
+            <button class="btn btn-sm" data-action="edit-customer" data-id="${E(c.id)}">编辑</button>
+            <button class="link danger" data-action="del-customer" data-id="${E(c.id)}">删除</button>
           </div>
         </td>
       </tr>`;
@@ -562,18 +562,18 @@ window.Views = (function () {
     const quickActions = `
       <div class="mobile-actions" style="display:flex;margin-bottom:14px">
         ${c.phone ? `<a class="btn btn-sm" href="tel:${E(c.phone)}">打电话</a>` : ''}
-        ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${c.id}">复制微信号</button>` : ''}
-        <button class="btn btn-sm" data-action="log-followup" data-id="${c.id}">记跟进</button>
-        <button class="btn btn-sm" data-action="digest" data-id="${c.id}">解析聊天记录</button>
-        <button class="btn btn-sm" data-action="new-deal" data-id="${c.id}">建商机</button>
+        ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${E(c.id)}">复制微信号</button>` : ''}
+        <button class="btn btn-sm" data-action="log-followup" data-id="${E(c.id)}">记跟进</button>
+        <button class="btn btn-sm" data-action="digest" data-id="${E(c.id)}">解析聊天记录</button>
+        <button class="btn btn-sm" data-action="new-deal" data-id="${E(c.id)}">建商机</button>
       </div>`;
 
-    const stageSelect = d => `<select class="stage-sel" data-id="${d.id}">
-      ${S.STAGES.map(s2 => `<option value="${s2.id}" ${d.stage === s2.id ? 'selected' : ''}>${s2.name}</option>`).join('')}
+    const stageSelect = d => `<select class="stage-sel" data-id="${E(d.id)}">
+      ${S.STAGES.map(s2 => `<option value="${E(s2.id)}" ${d.stage === s2.id ? 'selected' : ''}>${s2.name}</option>`).join('')}
     </select>`;
 
     const dealRows = deals.map(d => `<tr>
-      <td data-label="商机"><a href="#" data-action="edit-deal" data-id="${d.id}">${E(d.title)}</a>
+      <td data-label="商机"><a href="#" data-action="edit-deal" data-id="${E(d.id)}">${E(d.title)}</a>
         ${d.lostReason ? `<span class="sub" style="color:var(--red)">输单原因：${E(d.lostReason)}</span>` : ''}</td>
       <td data-label="阶段">${stageBadge(d.stage)}<br>${stageSelect(d)}</td>
       <td data-label="金额" class="right mono">${S.moneyFull(d.amount)}</td>
@@ -607,17 +607,17 @@ window.Views = (function () {
       <div class="section-title">商机（${deals.length}）</div>
       ${deals.length ? `<table class="rtable"><thead><tr><th>商机</th><th>阶段</th><th class="right">金额</th><th>预计成交</th><th>备注</th></tr></thead><tbody>${dealRows}</tbody></table>`
         : emptyBox('还没有关联商机')}
-      <button class="btn btn-sm" data-action="new-deal" data-id="${c.id}" style="margin:10px 0 18px">+ 为这家客户建商机</button>
+      <button class="btn btn-sm" data-action="new-deal" data-id="${E(c.id)}" style="margin:10px 0 18px">+ 为这家客户建商机</button>
 
       <div class="section-title">跟进记录（${fus.length}）</div>
       <div class="timeline">${tl || emptyBox('一条记录都没有，赶紧打第一个电话')}</div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-danger" data-action="del-customer" data-id="${c.id}">删除客户</button>
+      <button class="btn btn-danger" data-action="del-customer" data-id="${E(c.id)}">删除客户</button>
       <div class="spacer"></div>
-      <button class="btn" data-action="edit-customer" data-id="${c.id}">编辑</button>
-      <button class="btn" data-action="digest" data-id="${c.id}">整理聊天记录</button>
-      <button class="btn btn-primary" data-action="log-followup" data-id="${c.id}">记一笔跟进</button>
+      <button class="btn" data-action="edit-customer" data-id="${E(c.id)}">编辑</button>
+      <button class="btn" data-action="digest" data-id="${E(c.id)}">整理聊天记录</button>
+      <button class="btn btn-primary" data-action="log-followup" data-id="${E(c.id)}">记一笔跟进</button>
     </div>`;
   }
 
@@ -626,8 +626,8 @@ window.Views = (function () {
    * ============================================================ */
   function deals() {
     const all = S.list('deals');
-    const stageSelect = (d, cls) => `<select class="${cls}" data-id="${d.id}">
-      ${S.STAGES.map(s2 => `<option value="${s2.id}" ${d.stage === s2.id ? 'selected' : ''}>${s2.name}</option>`).join('')}
+    const stageSelect = (d, cls) => `<select class="${cls}" data-id="${E(d.id)}">
+      ${S.STAGES.map(s2 => `<option value="${E(s2.id)}" ${d.stage === s2.id ? 'selected' : ''}>${s2.name}</option>`).join('')}
     </select>`;
 
     // 桌面拖拽看板
@@ -638,7 +638,7 @@ window.Views = (function () {
         const c = S.get('customers', d.customerId);
         const dd = S.diffDays(d.expectedClose);
         const late = dd !== null && dd < 0 && d.stage !== 'won';
-        return `<div class="deal" draggable="true" data-deal="${d.id}">
+        return `<div class="deal" draggable="true" data-deal="${E(d.id)}">
           <div class="d-title">${E(d.title)} ${healthDot(d)}</div>
           <div class="muted small">${E(c ? c.name : '未知客户')} · ${E(c && c.contact ? c.contact : '')}</div>
           <div class="d-amount">${S.moneyFull(d.amount)}</div>
@@ -648,13 +648,13 @@ window.Views = (function () {
           </div>
           <div class="d-meta" style="margin-top:8px">
             ${stageSelect(d, 'stage-sel')}
-            <button class="link" data-action="edit-deal" data-id="${d.id}">编辑</button>
-            <button class="link" data-action="log-followup" data-id="${d.customerId}">跟进</button>
+            <button class="link" data-action="edit-deal" data-id="${E(d.id)}">编辑</button>
+            <button class="link" data-action="log-followup" data-id="${E(d.customerId)}">跟进</button>
           </div>
         </div>`;
       }).join('');
 
-      return `<div class="col" data-stage="${s.id}">
+      return `<div class="col" data-stage="${E(s.id)}">
         <div class="col-head">
           <span class="col-name"><span class="dot-ind" style="background:${s.color}"></span>${s.name}
             <span class="muted" style="margin-left:6px">${arr.length}</span></span>
@@ -687,8 +687,8 @@ window.Views = (function () {
             <div class="m-row">
               ${stageSelect(d, 'mstage-sel')}
               <div class="row-actions">
-                <button class="link" data-action="edit-deal" data-id="${d.id}">编辑</button>
-                <button class="link" data-action="log-followup" data-id="${d.customerId}">跟进</button>
+                <button class="link" data-action="edit-deal" data-id="${E(d.id)}">编辑</button>
+                <button class="link" data-action="log-followup" data-id="${E(d.customerId)}">跟进</button>
               </div>
             </div>
           </div>`;
@@ -720,7 +720,7 @@ window.Views = (function () {
           <tbody>${all.map(d => {
             const w = (Number(d.amount) || 0) * S.stageOf(d.stage).prob / 100;
             return `<tr>
-              <td><a href="#" data-action="edit-deal" data-id="${d.id}">${E(d.title)}</a>
+              <td><a href="#" data-action="edit-deal" data-id="${E(d.id)}">${E(d.title)}</a>
                 ${d.lostReason ? `<span class="sub" style="color:var(--red)">输单原因：${E(d.lostReason)}</span>` : ''}</td>
               <td>${E(S.customerName(d.customerId))}</td>
               <td>${stageBadge(d.stage)}</td>
@@ -729,8 +729,8 @@ window.Views = (function () {
               <td class="nowrap small">${E(d.expectedClose ? S.fmtDate(d.expectedClose) : '—')}</td>
               <td class="nowrap small">${E(d.closedAt ? S.fmtDate(d.closedAt) : '—')}</td>
               <td class="right nowrap">
-                <button class="link" data-action="edit-deal" data-id="${d.id}">编辑</button>
-                <button class="link danger" data-action="del-deal" data-id="${d.id}">删除</button>
+                <button class="link" data-action="edit-deal" data-id="${E(d.id)}">编辑</button>
+                <button class="link danger" data-action="del-deal" data-id="${E(d.id)}">删除</button>
               </td>
             </tr>`;
           }).join('') || `<tr><td colspan="8">${emptyBox('还没有商机')}</td></tr>`}</tbody>
@@ -750,30 +750,30 @@ window.Views = (function () {
 
     const pending = S.stats().pending;
     const pendingList = pending.map(({ c, dd }) => `
-      <div class="remind ${dd < 0 ? 'od' : ''}" data-action="open-customer" data-id="${c.id}" style="cursor:pointer">
+      <div class="remind ${dd < 0 ? 'od' : ''}" data-action="open-customer" data-id="${E(c.id)}" style="cursor:pointer">
         <div class="r-main">
           <div class="r-name">${E(c.name)}</div>
           <div class="r-meta">${E(c.contact || '')} ${c.phone ? E(c.phone) : ''} · ${E(S.fmtDate(c.nextFollowAt))} · ${dd < 0 ? `<span class="overdue">逾期 ${-dd} 天</span>` : '今天'}</div>
         </div>
         <div class="mobile-actions" style="gap:4px;margin:0">
           ${c.phone ? `<a class="btn btn-sm" href="tel:${E(c.phone)}">电话</a>` : ''}
-          ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${c.id}">微信</button>` : ''}
-          <button class="btn btn-sm" data-action="log-followup" data-id="${c.id}">完成</button>
+          ${c.wechat ? `<button class="btn btn-sm" data-action="copy-wechat" data-id="${E(c.id)}">微信</button>` : ''}
+          <button class="btn btn-sm" data-action="log-followup" data-id="${E(c.id)}">完成</button>
         </div>
       </div>`).join('');
 
     const typeOptions = ['<option value="">全部方式</option>'].concat(
       S.FOLLOW_TYPES.map(t => `<option value="${t}" ${ctx.type === t ? 'selected' : ''}>${t}</option>`)).join('');
     const custOptions = ['<option value="">全部客户</option>'].concat(
-      S.list('customers').map(c => `<option value="${c.id}" ${ctx.customerId === c.id ? 'selected' : ''}>${E(c.name)}</option>`)).join('');
+      S.list('customers').map(c => `<option value="${E(c.id)}" ${ctx.customerId === c.id ? 'selected' : ''}>${E(c.name)}</option>`)).join('');
 
     const timeline = rows.length ? `<div class="timeline">${rows.map(f => `
       <div class="tl-item">
         <div class="tl-head">
           <strong>${E(f.type)}</strong>
-          <a href="#" data-action="open-customer" data-id="${f.customerId}">${E(S.customerName(f.customerId))}</a>
+          <a href="#" data-action="open-customer" data-id="${E(f.customerId)}">${E(S.customerName(f.customerId))}</a>
           <span class="tl-time">${E(S.fmtDateTime(f.at))}</span>
-          <button class="link danger" data-action="del-followup" data-id="${f.id}">删除</button>
+          <button class="link danger" data-action="del-followup" data-id="${E(f.id)}">删除</button>
         </div>
         <div class="tl-body">${E(f.content)}</div>
       </div>`).join('')}</div>` : emptyBox('还没有跟进记录');
@@ -788,7 +788,7 @@ window.Views = (function () {
         <div class="card-head">
           <div class="card-title">跟进日志<span class="card-sub">${rows.length} 条</span></div>
           <div class="spacer"></div>
-          <button class="btn btn-sm" data-action="digest" data-id="${ctx.customerId || ''}">整理聊天记录</button>
+          <button class="btn btn-sm" data-action="digest" data-id="${E(ctx.customerId || '')}">整理聊天记录</button>
           <button class="btn btn-primary btn-sm" data-action="quick-followup">+ 记一笔</button>
         </div>
         <div class="toolbar">
@@ -818,9 +818,9 @@ window.Views = (function () {
           ${why ? `<span class="tag sub">${E(why)}</span>` : ''}
           ${s.builtin ? '' : '<span class="tag mine">我的</span>'}
           <div class="spacer"></div>
-          <button class="btn btn-sm btn-primary" data-action="copy-script" data-id="${s.id}">复制</button>
-          <button class="link" data-action="edit-script" data-id="${s.id}">编辑</button>
-          <button class="link danger" data-action="del-script" data-id="${s.id}">删除</button>
+          <button class="btn btn-sm btn-primary" data-action="copy-script" data-id="${E(s.id)}">复制</button>
+          <button class="link" data-action="edit-script" data-id="${E(s.id)}">编辑</button>
+          <button class="link danger" data-action="del-script" data-id="${E(s.id)}">删除</button>
         </div>
       </div>`;
   }
@@ -1164,7 +1164,7 @@ window.Views = (function () {
         </p>
         <div class="field"><label>有邀请码？填进来加入团队</label>
           <div style="display:flex;gap:6px">
-            <input id="invite-input" placeholder="8 位邀请码" style="flex:1;text-transform:uppercase">
+            <input id="invite-input" placeholder="邀请码" style="flex:1;text-transform:uppercase">
             <button class="btn btn-primary" data-action="join-team">加入</button>
           </div></div>
         <div class="hint">邀请码找你们的管理员要（在他的「账号与团队」卡片里）。
@@ -1250,7 +1250,13 @@ window.Views = (function () {
       <div class="card">
         <div class="card-head"><div class="card-title">数据管理</div></div>
         <p class="small muted" style="margin-top:0">
-          数据保存在本机浏览器（localStorage）：${S.isPersistent() ? '<span class="up">可持久化</span>' : '<span class="down">当前环境不可用，刷新会丢失，请及时导出备份</span>'}。
+          数据保存在本机浏览器（localStorage）：${S.isPersistent() ? '<span class="up">可持久化</span>' : '<span class="down">当前环境不可用或空间已满，刷新会丢失，请及时导出备份</span>'}${(() => {
+            /* 持久化存储申请结果（审计 M11）：没批的话浏览器可能清理本站数据，Safari 未加到主屏幕时尤其如此 */
+            const g = S.storageInfo ? S.storageInfo().persistGranted : null;
+            if (g === true) return '；<span class="up">已获浏览器长期保存授权</span>';
+            if (g === false) return '；<span class="down">浏览器未授予长期保存，空间紧张或长期不打开时可能被清理（Safari 请添加到主屏幕），建议开启同步或定期导出</span>';
+            return '';
+          })()}。
           换电脑/换浏览器请先导出 JSON 再导入。
         </p>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -1365,9 +1371,10 @@ window.Views = (function () {
           <div class="field"><label>表名</label>
             <input id="sb-table" value="${E(sy.table || 'sales_sync')}" placeholder="sales_sync"></div>
           <div class="field"><label>空间名</label>
-            <input id="sb-space" value="${E(sy.space || 'default')}" placeholder="default"></div>
+            <input id="sb-space" value="${E(sy.space || '')}" placeholder="至少 16 位" autocomplete="off">
+            <button type="button" class="btn btn-sm" data-action="sb-space-gen" style="margin-top:4px">随机生成</button></div>
         </div>
-        <div class="hint">建表 SQL 见 README。<b>空间名相同的设备之间互相同步</b>；想让多个账号各自独立，填不同的空间名即可。</div>
+        <div class="hint">建表 SQL 见 README。<b>空间名相同的设备之间互相同步</b>，它就是这份数据的密码：至少 16 位，别用 default 这类能猜到的名字，其他设备照抄同一个即可。AI / 搜索的 Key 不会上传到这张表。</div>
       </div>
 
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
@@ -1502,7 +1509,7 @@ window.Views = (function () {
   function ai(ctx) {
     const customers = S.list('customers').slice().sort((a, b) => (a.nextFollowAt || '').localeCompare(b.nextFollowAt || ''));
     const custOptions = ['<option value="">选择客户（可选）</option>'].concat(
-      customers.map(c => `<option value="${c.id}" ${ctx.customerId === c.id ? 'selected' : ''}>${E(c.name)} ${c.contact ? '（' + E(c.contact) + '）' : ''}</option>`)).join('');
+      customers.map(c => `<option value="${E(c.id)}" ${ctx.customerId === c.id ? 'selected' : ''}>${E(c.name)} ${c.contact ? '（' + E(c.contact) + '）' : ''}</option>`)).join('');
     const hasKey = !!(S.state.settings.ai && S.state.settings.ai.key);
     return `
     <div class="card">
@@ -1582,7 +1589,7 @@ window.Views = (function () {
 
     /* 范围切换 */
     const chips = R.RANGES.map(r =>
-      `<button class="chip ${r.key === key ? 'active' : ''}" data-action="rp-range" data-range="${r.key}">${r.name}</button>`
+      `<button class="chip ${r.key === key ? 'active' : ''}" data-action="rp-range" data-range="${E(r.key)}">${r.name}</button>`
     ).join('');
 
     /* 数字：0 的不显示 —— 周报里出现「成交 0 单」是自曝其短，
@@ -1598,7 +1605,7 @@ window.Views = (function () {
 
     /* 重点客户 */
     const hotHtml = d.hot.length ? d.hot.map(h => `
-      <div class="rp-cust" data-action="open-customer" data-id="${h.id}" style="cursor:pointer">
+      <div class="rp-cust" data-action="open-customer" data-id="${E(h.id)}" style="cursor:pointer">
         <div class="rp-c-top">
           <b>${E(h.name)}</b> ${levelTag(h.level)}
           ${h.stageName ? `<span class="badge" style="background:${S.stageOf(h.stage).color}">${E(h.stageName)}</span>` : ''}
@@ -1613,7 +1620,7 @@ window.Views = (function () {
     const nextHtml = d.next.length ? d.next.slice(0, 12).map(n => `
       <div class="rp-row">
         <span class="rp-date">${E(n.at)}</span>
-        <a href="#" data-action="open-customer" data-id="${n.id}">${E(n.name)}</a>
+        <a href="#" data-action="open-customer" data-id="${E(n.id)}">${E(n.name)}</a>
         <span class="rp-what">${E(n.text)}</span>
       </div>`).join('') : emptyBox('未来 7 天没有待兑现的承诺');
 

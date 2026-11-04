@@ -3,14 +3,15 @@
 # 来源：① 旧项目 supabase/knowledge-seed.sql（约12条高质量知识型条目）
 #       ② Operit 聊天记录归档里可提取的批量生成条目（尽力而为）
 #       ③ hy4 内置48条话术【不收】—— 已在话术库，避免重复
-import json, re, html, os, hashlib
+import json, re, html, os, hashlib, sys
 
 ROOT = os.path.join(os.path.dirname(__file__), '..')
 OUT = os.path.join(ROOT, 'kb', 'knowledge.json')
-SEED_SQL = os.path.join(ROOT, '..', 'copilot-old', 'supabase', 'knowledge-seed.sql')
-# 聊天归档路径：默认从环境变量 KB_CHAT_JSON 读，没有就跳过该数据源
-# （当年那份归档在本机微信目录，换机后设 KB_CHAT_JSON 指向新位置即可）
-CHAT = os.environ.get('KB_CHAT_JSON', r"D:/WeChat Files/wxid_oenwhe9q5qja22/FileStorage/File/2026-09/chat_backup_2026-09-09_12-27-43.json")
+# 两个外部数据源都不在仓库里，只能用环境变量指过去，没有就跳过（审计 m17）。
+# 以前这里硬编码了作者本机的微信目录（含个人 wxid），公开仓库里不该出现。
+SEED_SQL = os.environ.get('KB_SEED_SQL', os.path.join(ROOT, '..', 'copilot-old', 'supabase', 'knowledge-seed.sql'))
+CHAT = os.environ.get('KB_CHAT_JSON', '')
+FORCE = '--force' in sys.argv
 
 CAT_MAP = {
     'objection': '异议应对', 'script': '标准话术', 'competitor': '竞品对比',
@@ -95,6 +96,17 @@ out = {
     'notice': '条目由 AI 辅助整理生成，金额、案例、政策类说法使用前请按自己产品与客户实际情况核实。',
     'items': items,
 }
+# 输入缺失时不能静默变少（审计 m28）：以前外部数据源不在时只剩人工条目，
+# 照样覆盖现有 kb/knowledge.json，条目数悄悄从 78 掉到 60。
+if os.path.exists(OUT) and not FORCE:
+    try:
+        old_n = len(json.load(open(OUT, encoding='utf-8')).get('items', []))
+    except Exception:
+        old_n = 0
+    if len(items) < old_n:
+        print(f'拒绝覆盖：新生成 {len(items)} 条，少于现有 {old_n} 条（多半是 KB_SEED_SQL / KB_CHAT_JSON 没指到数据）。'
+              ' 确认要覆盖请加 --force。', file=sys.stderr)
+        sys.exit(1)
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, 'w', encoding='utf-8') as fp:
     json.dump(out, fp, ensure_ascii=False, indent=1)

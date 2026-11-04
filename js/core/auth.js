@@ -179,7 +179,11 @@ window.Auth = (function () {
   }
 
   async function refresh() {
-    if (!session || !session.refresh_token) throw new Error('没有可刷新的会话');
+    if (!session || !session.refresh_token) {
+      const err = new Error('没有可刷新的会话');
+      err.status = 401;                          // 没有 refresh_token 就是没法续，按被拒处理
+      throw err;
+    }
     if (refreshing) return refreshing;
     refreshing = (async () => {
       try {
@@ -201,11 +205,29 @@ window.Auth = (function () {
     return refreshing;
   }
 
+  /* 刷新失败是不是「服务端明确拒绝了这个会话」（2026-11-04 审计 M8）。
+   * 以前任何失败都清会话：PWA 离线超过 1 小时再打开，首次同步一刷新失败就被登出，
+   * 和「断网可用」自相矛盾。现在只有 400/401/403（refresh_token 失效、被吊销）才清；
+   * 断网、超时、5xx 都保留会话，下次联网再试。 */
+  function rejected(e) {
+    return !!e && (e.status === 400 || e.status === 401 || e.status === 403);
+  }
+  function offlineError(e) {
+    const err = new Error('网络不可用，已保留登录，联网后会自动重试');
+    err.offline = true;
+    err.cause = e;
+    return err;
+  }
+
   /* 带自动续期的请求。token 快过期就先刷一次再发。 */
   async function api(path, opts) {
     if (!isOn()) throw new Error('未登录');
     if (isExpired()) {
-      try { await refresh(); } catch (e) { saveSession(null); throw new Error('登录已过期，请重新登录'); }
+      try { await refresh(); } catch (e) {
+        if (!rejected(e)) throw offlineError(e);
+        saveSession(null);
+        throw new Error('登录已过期，请重新登录');
+      }
     }
     const o = Object.assign({}, opts, {
       headers: Object.assign(headers(true), (opts && opts.headers) || {})
@@ -215,13 +237,13 @@ window.Auth = (function () {
     } catch (e) {
       /* 401 先尝试刷新一次再重试，还不行才算真的掉线 */
       if (e.status === 401) {
-        try {
-          await refresh();
-          return await call(path, Object.assign({}, o, { headers: headers(true) }));
-        } catch (e2) {
+        try { await refresh(); } catch (e2) {
+          if (!rejected(e2)) throw offlineError(e2);
           saveSession(null);
           throw new Error('登录已过期，请重新登录');
         }
+        /* 刷新成功后的重试：失败就原样抛出（比如 RLS 的 403），不能当成掉线把人登出 */
+        return await call(path, Object.assign({}, o, { headers: headers(true) }));
       }
       throw e;
     }
@@ -327,6 +349,8 @@ window.Auth = (function () {
   const resetInviteCode = () => rpc('reset_invite_code');
   async function joinTeam(code) {
     const tid = await rpc('join_team', { code: String(code || '').trim() });
+    /* 输错时数据库返回 null 而不是报错（这样才记得住失败次数，见 supabase.sql join_team） */
+    if (!tid) throw new Error('邀请码不对，找管理员要一个');
     await loadProfile(true);
     return tid;
   }
@@ -338,12 +362,33 @@ window.Auth = (function () {
   /* 全队记录。只有管理员调得动——RLS 里 records 的管理员策略是只读的 select，
    * 普通成员调这个只会拿到空数组（甚至 403），这不是 bug，是隔离在起作用。
    * 拿到的东西不进本地库，只用于团队看板的一次性展示。 */
+  /* 2026-11-04 审计 M17：
+   *   ① 以前 select=data 把客户名、电话、备注整份拉到管理员浏览器，README 却说「不显示客户名字」。
+   *      看板只用得到下面这几个字段，就只拉这几个（PostgREST 的 data->>字段）。
+   *      注意这只是看板不拉；RLS 层面管理员仍有权读成员的完整记录，README 已如实写明。
+   *   ② 以前 limit=2000 一次拉完，记录多时看板静默少算。现在按主键排序逐页拉。 */
+  const TEAM_FIELDS = ['stage', 'amount', 'closedAt', 'nextFollowAt', 'at'];
+  const TEAM_PAGE = 1000;
+  const TEAM_MAX_PAGES = 50;
   async function teamRecords() {
     if (!isAdmin() || !teamId()) return [];
+    const select = 'user_id,kind,id,' + TEAM_FIELDS.map(f => f + ':data->>' + f).join(',');
+    const out = [];
     try {
-      return await api('/rest/v1/records?team_id=eq.' + encodeURIComponent(teamId()) +
-        '&deleted=eq.false&select=user_id,kind,id,data,deleted&limit=2000', { method: 'GET' });
-    } catch (e) { return []; }
+      for (let page = 0; page < TEAM_MAX_PAGES; page++) {
+        const rows = await api('/rest/v1/records?team_id=eq.' + encodeURIComponent(teamId()) +
+          '&deleted=eq.false&select=' + select + '&order=user_id.asc,kind.asc,id.asc' +
+          '&limit=' + TEAM_PAGE + '&offset=' + (page * TEAM_PAGE), { method: 'GET' });
+        if (!Array.isArray(rows)) break;
+        rows.forEach(r => {
+          const data = {};
+          TEAM_FIELDS.forEach(f => { if (r[f] != null) data[f] = r[f]; });
+          out.push({ user_id: r.user_id, kind: r.kind, id: r.id, deleted: false, data: data });
+        });
+        if (rows.length < TEAM_PAGE) break;
+      }
+      return out;
+    } catch (e) { return out.length ? out : []; }
   }
 
   /* ---------- 测试连接：填完配置先探一下 ---------- */

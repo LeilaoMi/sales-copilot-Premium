@@ -8,7 +8,7 @@
     "dev": "echo '本地开发请用 EdgeOne CLI，或直接用项目自带的 node server.js' && exit 0"
   },
   "dependencies": {
-    "@edgeone/pages-blob": "^1.0.0"
+    "@edgeone/pages-blob": "^0.0.18"
   },
   "engines": {
     "node": ">=18"

@@ -63,6 +63,9 @@ declare
   new_team_id uuid;
   member_count int;
 begin
+  /* 首个用户判定要串行（审计 m12）：两人几乎同时注册时，两个事务都数到 0，
+   * 会各建一个团队、各当 owner。事务级咨询锁让并发注册在这里排队。 */
+  perform pg_advisory_xact_lock(hashtext('sales_copilot.handle_new_user'));
   select count(*) into member_count from public.profiles;
 
   if member_count = 0 then
@@ -72,7 +75,7 @@ begin
       values (
         coalesce(new.raw_user_meta_data->>'name', '我的团队'),
         new.id,
-        upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+        upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
       )
       returning id into new_team_id;
 
@@ -199,9 +202,71 @@ create policy "profile_admin_update" on profiles
   for update to authenticated
   using (
     my_role() in ('owner', 'admin')
-    and (team_id = my_team_id() or team_id is null)
+    and team_id = my_team_id()
   )
   with check (my_role() in ('owner', 'admin'));
+-- 审计 m25：以前 using 里还有「or team_id is null」，管理员知道 uid 就能把任何还没入队的人
+-- 拉进自己团队，进而读到对方之后写的全部记录。入队只走邀请码（join_team）。
+
+-- 档案字段守卫（2026-11-04 审计 C1）：
+-- 两条 update 策略只能约束「哪一行能改」，管不到「改了哪些列」。
+-- 没有这道守卫时，成员可以 PATCH 自己的 role=owner / team_id=任意团队，
+-- 拿到管理员读权限后读走整队客户记录；admin 也能把人挪到别的团队、
+-- 给自己或他人授 owner。这里用 before update 触发器逐列把关：
+--   1. 自己只能改 display_name；换队走 join_team()/leave_team()，
+--      它们是 security definer，以表属主身份执行，不受这里限制；
+--   2. 管理员改别人：只能在自己团队内操作（旧值是本队或无队，新值必须是本队），
+--      不能修改 owner 的角色，也不能授出 owner；
+--   3. owner 转让请走专门流程（当前前端未提供）。
+create or replace function guard_profile_update()
+returns trigger
+language plpgsql
+-- 注意：这里故意不用 security definer。definer 会让 current_user 恒为表属主，
+-- 下面「只拦 API 角色」的判断就失效了。查操作者身份用 my_role()/my_team_id()。
+security invoker
+set search_path = public
+as $$
+declare
+  op_role text := my_role();
+  op_team uuid := my_team_id();
+begin
+  -- 只拦 API 角色。security definer 函数（join_team / leave_team /
+  -- admin_remove_member / handle_new_user）里的 update 以表属主身份执行，放行。
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if new.id is distinct from old.id then
+    raise exception '不能修改档案 id' using errcode = '42501';
+  end if;
+  if new.role is not distinct from old.role and new.team_id is not distinct from old.team_id then
+    return new;   -- 只改了 display_name 等普通字段
+  end if;
+  if old.id = auth.uid() then
+    raise exception '不能修改自己的角色或团队；换队请用邀请码' using errcode = '42501';
+  end if;
+
+  if op_role is null or op_role not in ('owner', 'admin') or op_team is null then
+    raise exception '只有团队 owner/admin 能调整成员' using errcode = '42501';
+  end if;
+  if old.team_id is not null and old.team_id is distinct from op_team then
+    raise exception '只能调整本团队成员' using errcode = '42501';
+  end if;
+  if new.team_id is distinct from op_team then
+    raise exception '只能把成员放进本团队；移出请用 admin_remove_member' using errcode = '42501';
+  end if;
+  if old.role = 'owner' then
+    raise exception '不能修改 owner 的角色' using errcode = '42501';
+  end if;
+  if new.role = 'owner' then
+    raise exception '不能直接授予 owner' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_guard on profiles;
+create trigger profiles_guard before update on profiles
+  for each row execute function guard_profile_update();
 
 -- 移出团队成员走 security definer RPC（admin_remove_member）。
 -- 原因：2026-09-09 实测，即便上面这条策略定义完全正确，
@@ -225,6 +290,13 @@ begin
   end if;
   if target = auth.uid() then
     raise exception '不能把自己移出团队';
+  end if;
+  /* 审计 m12/m25：admin 不能移出 owner，也不能移出别的 admin；只有 owner 能移出 admin */
+  if exists (select 1 from profiles where id = target and role = 'owner') then
+    raise exception '不能移出 owner';
+  end if;
+  if op_role = 'admin' and exists (select 1 from profiles where id = target and role = 'admin') then
+    raise exception '只有 owner 能移出管理员';
   end if;
   update profiles set team_id = null where id = target and team_id = op_team;
   if not found then
@@ -323,7 +395,8 @@ begin
   if my_team_id() is null then
     raise exception '你还没有团队';
   end if;
-  c := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
+  -- 12 位十六进制（48 位）。以前 8 位只有 32 位，配合不限次数的 join_team 可以穷举（审计 m12）
+  c := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
   update teams set invite_code = c where id = my_team_id();
   return c;
 end;
@@ -334,6 +407,18 @@ returns text as $$
   select invite_code from teams where id = my_team_id();
 $$ language sql security definer stable set search_path = public;
 
+/* 输错邀请码的记录（审计 m12：以前不限次数，8 位码可穷举）。
+ * 只有 join_team（security definer）读写，API 角色无权直接访问。 */
+create table if not exists join_attempts (
+  user_id uuid not null,
+  at timestamptz not null default now()
+);
+create index if not exists join_attempts_user_at on join_attempts (user_id, at);
+alter table join_attempts enable row level security;
+revoke all on join_attempts from anon, authenticated;
+
+/* 输错不抛异常而是返回 null：抛异常会把这次失败记录一起回滚，限流就失效了。
+ * 前端（auth.js joinTeam）收到 null 时提示「邀请码不对」。 */
 create or replace function join_team(code text)
 returns uuid as $$
 declare tid uuid;
@@ -341,9 +426,15 @@ begin
   if code is null or length(trim(code)) = 0 then
     raise exception '请填邀请码';
   end if;
+  if (select count(*) from join_attempts
+      where user_id = auth.uid() and at > now() - interval '15 minutes') >= 10 then
+    raise exception '邀请码输错太多次，15 分钟后再试';
+  end if;
   select id into tid from teams where invite_code = upper(trim(code));
   if tid is null then
-    raise exception '邀请码不对，找管理员要一个';
+    delete from join_attempts where at < now() - interval '1 day';
+    insert into join_attempts(user_id) values (auth.uid());
+    return null;
   end if;
   update profiles set team_id = tid where id = auth.uid();
   if not found then
@@ -366,11 +457,123 @@ grant execute on function my_invite_code() to authenticated;
 grant execute on function join_team(text) to authenticated;
 grant execute on function leave_team() to authenticated;
 
+-- ---------- 表权限（审计 M26） ----------
+-- 2026-05-30 起新建的 Supabase 项目不再给 public 下的新表自动授权，
+-- 不写这几行，按文档新建的项目一登录就是 42501 permission denied。
+-- 只授给 authenticated：哪一行能读写由上面的 RLS 决定；anon 一张业务表都不需要。
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on profiles, teams, records, team_scripts, user_settings to authenticated;
+
 
 -- ---------- updated_at 自动维护 ----------
+-- ---------- records 的服务端守卫（2026-11-04 审计 M4 / M5 / M6）----------
+-- 触发器按名字顺序执行：records_10_lww → records_20_team → records_touch。
+
+-- M5 记录级「最后修改者赢」：
+--   以前 upsert 是无条件覆盖，离线设备推上来的旧版本会盖掉云端的新版本，
+--   而持有新版本的设备因为本地更新、又低于推送游标，不会再推——两边永久分叉。
+--   现在按 data.updatedAt（毫秒数字）比较，推上来的更旧就整行跳过（return null）。
+--   相等时放行，保证同一版本重复推送是幂等的。
+create or replace function records_ts(d jsonb)
+returns numeric
+language sql
+immutable
+as $$
+  select case
+    when jsonb_typeof(d -> 'updatedAt') = 'number' then (d ->> 'updatedAt')::numeric
+    when (d ->> 'updatedAt') ~ '^[0-9]+(\.[0-9]+)?$' then (d ->> 'updatedAt')::numeric
+    else 0
+  end
+$$;
+
+create or replace function records_lww()
+returns trigger
+language plpgsql
+as $$
+begin
+  if records_ts(new.data) < records_ts(old.data) then
+    return null;   -- 更旧的版本：本行不更新，其余行照常
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists records_10_lww on records;
+create trigger records_10_lww before update on records
+  for each row execute function records_lww();
+
+-- M4 team_id 由服务端决定：
+--   以前 team_id 是前端随记录一起传的，成员能把记录写进任何已知团队；
+--   退队后旧记录 team_id 不变，原团队管理员还能一直读；
+--   入队前的记录 team_id 为空，要等被改动才进团队看板。
+--   现在：写入时一律取作者当前所在团队，前端传什么都不算；
+--   成员换队 / 退队 / 被移出时，他的全部记录跟着改。
+--   管理员只读策略 records_admin_read 不变（team_id = my_team_id()），
+--   但这一列从此可信。
+create or replace function records_set_team()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.team_id := (select team_id from profiles where id = new.user_id);
+  return new;
+end;
+$$;
+
+drop trigger if exists records_20_team on records;
+create trigger records_20_team before insert or update on records
+  for each row execute function records_set_team();
+
+create or replace function profiles_follow_team()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update records set team_id = new.team_id
+   where user_id = new.id and team_id is distinct from new.team_id;
+  return null;
+end;
+$$;
+
+drop trigger if exists profiles_follow_team on profiles;
+create trigger profiles_follow_team after update of team_id on profiles
+  for each row when (old.team_id is distinct from new.team_id)
+  execute function profiles_follow_team();
+
+-- M6 updated_at 用 clock_timestamp()，且内容没变就不动：
+--   now() 是事务开始时间，一次 upsert 500 条全部同一个时间戳；
+--   增量拉取按 updated_at 翻页时，第 2000 行落在这批中间，剩下的就永远拉不到。
+--   clock_timestamp() 逐行取真实时间，大幅减少并列（微秒级仍可能撞，
+--   所以前端改为 updated_at >= 游标翻页、重复行按 LWW 幂等处理）。只改 team_id（上面的跟队）不算内容变化，
+--   不刷新时间戳，免得成员换一次队，他所有设备把全部记录重新拉一遍。
+create or replace function records_touch()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE'
+     and new.data is not distinct from old.data
+     and new.deleted is not distinct from old.deleted then
+    new.updated_at := old.updated_at;
+  else
+    new.updated_at := clock_timestamp();
+  end if;
+  return new;
+end;
+$$;
+
 drop trigger if exists records_touch on records;
 create trigger records_touch before insert or update on records
-  for each row execute function touch_updated_at();
+  for each row execute function records_touch();
+
+-- 存量数据：按作者当前团队校正一次 team_id（幂等）。
+update records r set team_id = p.team_id
+  from profiles p
+ where p.id = r.user_id and r.team_id is distinct from p.team_id;
 
 drop trigger if exists team_scripts_touch on team_scripts;
 create trigger team_scripts_touch before insert or update on team_scripts
@@ -386,7 +589,14 @@ create trigger user_settings_touch before insert or update on user_settings
 --
 --    sync.js 的 supabaseAdapter 读写这张表：一行 = 一个「空间」（id = 空间名）。
 --    注意与上面的 records 体系无关：多人协作请用「Supabase 账号」模式（records），
---    快照模式的隔离只有「空间名」，知道 URL + anon key + 空间名的人都能读写。
+--    快照模式的隔离只有「空间名」，空间名就是密码。
+--
+--    2026-11-04 审计 M1：原策略是 using (true)，拿到公开 anon key 的人
+--    select=* 就能列出所有空间并读写删整包，根本不需要知道空间名。现在改为：
+--      · 每个请求必须带 x-sync-space 请求头，只能看到/写入 id 等于它的那一行，
+--        不带头的 select=* 一行也拿不到，无法枚举；
+--      · 空间名至少 16 位，'default' 这类能猜的名字不再被接受；
+--      · 前端推送前会剔除 AI / Tavily Key 和同步配置，整包里不再带凭据。
 -- ============================================================
 create table if not exists sales_sync (
   id         text primary key,             -- 空间名，默认 'default'
@@ -396,11 +606,26 @@ create table if not exists sales_sync (
 
 alter table sales_sync enable row level security;
 
+-- PostgREST 把请求头放进 request.headers（JSON，头名小写）。
+-- 不是经 PostgREST 来的连接（SQL Editor、psql）这里返回 null，策略自然不放行。
+create or replace function sales_sync_space()
+returns text
+language sql
+stable
+as $$
+  select nullif(current_setting('request.headers', true), '')::json ->> 'x-sync-space'
+$$;
+
 drop policy if exists "sales_sync_anon_all" on sales_sync;
-create policy "sales_sync_anon_all" on sales_sync
+drop policy if exists "sales_sync_by_space" on sales_sync;
+create policy "sales_sync_by_space" on sales_sync
   for all to anon, authenticated
-  using (true)
-  with check (true);
+  using (id = sales_sync_space() and length(id) >= 16)
+  with check (id = sales_sync_space() and length(id) >= 16);
+-- 显式授权：2026-10-30 之后新建的 Supabase 项目不再默认给 anon/authenticated 授权，
+-- 不写这两行快照模式在新库上直接 401/403。行级隔离仍由上面的策略负责。
+grant execute on function sales_sync_space() to anon, authenticated;
+grant select, insert, update, delete on sales_sync to anon, authenticated;
 
 drop trigger if exists sales_sync_touch on sales_sync;
 create trigger sales_sync_touch before insert or update on sales_sync

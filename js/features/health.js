@@ -38,10 +38,12 @@ window.Health = (function () {
     cache.key = -1;
   }
 
-  /* ---------- 缓存：以数据版本号为 key ---------- */
+  /* ---------- 缓存：以数据代号 + 版本号为 key ----------
+   * 只看版本号（最大 updatedAt）不够：拉下较旧记录、purge 后它不变（审计 m3）。 */
   const cache = { key: -1, baselines: null, cadence: null, fidx: null };
   function ensureCache() {
-    const k = window.Store.revision();
+    const S = window.Store;
+    const k = (S.generation ? S.generation() : 0) + ':' + S.revision();
     if (k === cache.key && cache.baselines) return;
     cache.key = k;
     cache.baselines = buildBaselines();
@@ -164,9 +166,17 @@ window.Health = (function () {
     return def[stageId] != null ? def[stageId] : 21;
   }
 
+  /* 算到这条商机头上的跟进（审计 m24）：
+   * 以前按客户汇总——同一客户有两单，A 单天天在聊，B 单早凉了也显示「刚联系过」。
+   * 现在：明确挂在本单上的算；没挂任何商机的（一句话录入等）当作客户层面的接触，也算；
+   * 挂在同客户其他商机上的，不算。 */
+  function fOfDeal(deal) {
+    return fOf(deal.customerId).filter(f => !f.dealId || f.dealId === deal.id);
+  }
+
   /* ---------- 最后接触时间：跟进优先，没有就用商机创建日 ---------- */
   function lastTouchOf(deal) {
-    const fs = fOf(deal.customerId);
+    const fs = fOfDeal(deal);
     let t = 0;
     fs.forEach(f => { const p = Date.parse(f.at || 0); if (p > t) t = p; });
     const c = Date.parse(deal.createdAt || 0);
@@ -189,7 +199,7 @@ window.Health = (function () {
     const since = Date.now() - windowDays * DAY;
     const h = (deal.stageHistory || []).filter(x => x && x.at > since);
     if (h.length) return true;
-    return fOf(deal.customerId).some(x => Date.parse(x.at || 0) > since);
+    return fOfDeal(deal).some(x => Date.parse(x.at || 0) > since);
   }
 
   const NEXT_OF = { lead: 'contact', contact: 'solution', solution: 'quote', quote: 'negotiate', negotiate: 'won' };

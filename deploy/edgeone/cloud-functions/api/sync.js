@@ -34,6 +34,7 @@ import CORE from '../_shared/sync-core.js';
 const STORE_NAME = process.env.BLOB_STORE || 'sales-copilot';
 const FIXED_TOKEN = process.env.SYNC_TOKEN || '';   // 留空 = 多人模式（令牌即空间）
 const MAX_DEVICES = Number(process.env.MAX_DEVICES || 20);
+const MAX_SPACES = Number(process.env.MAX_SPACES || 200);   // 多人模式的空间数上限，与 server.js 一致
 const MAX_BODY = 8 * 1024 * 1024;                   // 8MB，和 server.js 一致
 
 const CORS = {
@@ -67,29 +68,46 @@ function safeDeviceId(raw) {
   return s.slice(0, 40) || 'default';
 }
 
-/* ---------- 读取某个空间里的全部数据 ---------- */
+/* ---------- 读取某个空间里的全部数据 ----------
+ * 以前设备文件超过 MAX_DEVICES 就让 GET/PUT 永远 413，又没有清理途径，空间等于被锁死
+ * （审计 M23）。现在读永远放行；超限在写入新设备时就地收拢（见 compactFor）。 */
 async function readSpace(space) {
   const st = store();
-  const prefix = spacePrefix(space);
-  const { blobs } = await st.list({ prefix, consistency: 'strong' });
-
-  /* 设备太多通常是出 bug 了（比如客户端每次都生成新 ID），
-   * 与其默默写爆存储空间，不如直接报错让人来查 */
-  if (blobs.length > MAX_DEVICES) {
-    const err = new Error('该空间的设备数已达上限 ' + MAX_DEVICES + '，请检查是否有设备重复上报 ID');
-    err.status = 413;
-    throw err;
-  }
-
+  const { blobs } = await st.list({ prefix: spacePrefix(space), consistency: 'strong' });
   let merged = null;
   let devices = 0;
+  const snaps = [];
   for (const b of blobs) {
     const snap = await st.get(b.key, { type: 'json', consistency: 'strong' });
     if (!snap || !snap.data) continue;
     devices++;
+    snaps.push({ key: b.key, updatedAt: Number(snap.updatedAt) || 0, data: snap.data });
     merged = merged ? CORE.merge(merged, snap.data) : snap.data;
   }
-  return { data: merged, devices: devices };
+  return { data: merged, devices: devices, snaps: snaps };
+}
+
+/* 新设备要进来而空间已满：把最旧的几台设备的数据并进这台的快照，再删掉它们的文件。
+ * merge 按记录取新、删除也是带 updatedAt 的记录，所以收拢不丢任何数据，
+ * 被收拢的旧设备下次推送时会作为新设备重新进来。 */
+async function compactFor(space, myKey, toWrite) {
+  const { snaps } = await readSpace(space);
+  const others = snaps.filter(x => x.key !== myKey).sort((a, b) => a.updatedAt - b.updatedAt);
+  const extra = others.length - (MAX_DEVICES - 1);
+  if (extra <= 0) return { data: toWrite, evict: [] };
+  const evict = others.slice(0, extra);
+  let data = toWrite;
+  evict.forEach(x => { data = CORE.merge(x.data, data); });
+  return { data: data, evict: evict.map(x => x.key) };
+}
+
+/* 多人模式下新空间的配额：以前没有上限，任何人都能用随机令牌无限开空间 */
+async function spaceCount() {
+  const r = await store().list({ prefix: PREFIX, directories: true, consistency: 'strong' });
+  const names = new Set();
+  (r.directories || []).forEach(d => { const n = String(d).replace(PREFIX, '').replace(/\/+$/, ''); if (n) names.add(n); });
+  (r.blobs || []).forEach(b => { const n = String(b.key).slice(PREFIX.length).split('/')[0]; if (n && b.key.indexOf('/', PREFIX.length) > 0) names.add(n); });
+  return names.size;
 }
 
 /* ============================================================
@@ -130,6 +148,9 @@ export async function onRequest(context) {
     }
     const incoming = body && body.data;
     if (!incoming || typeof incoming !== 'object') return json({ error: '缺少 data' }, 400);
+    // 结构校验（2026-11-04 审计 C4）：坏结构直接 400，不写进 Blob
+    const bad = CORE.validate(incoming);
+    if (bad) return json({ error: '数据格式不对：' + bad }, 400);
 
     const raw = JSON.stringify(incoming);
     if (raw.length > MAX_BODY) return json({ error: '数据过大（上限 8MB）' }, 413);
@@ -147,7 +168,20 @@ export async function onRequest(context) {
      * 自己的旧快照还是要先读出来 merge 一遍：万一这次推送漏了什么
      * （比如换浏览器、清过缓存），不能把历史数据冲掉 */
     const prev = await st.get(key, { type: 'json', consistency: 'strong' });
-    const toWrite = prev && prev.data ? CORE.merge(prev.data, incoming) : incoming;
+    let toWrite = prev && prev.data ? CORE.merge(prev.data, incoming) : incoming;
+    let evict = [];
+
+    if (!prev) {
+      const { blobs } = await st.list({ prefix: spacePrefix(space), consistency: 'strong' });
+      if (!blobs.length && !FIXED_TOKEN && MAX_SPACES > 0 && (await spaceCount()) >= MAX_SPACES) {
+        return json({ error: '服务器空间数已达上限 ' + MAX_SPACES + '，请联系管理员（MAX_SPACES）' }, 503);
+      }
+      if (blobs.length >= MAX_DEVICES) {
+        const c = await compactFor(space, key, toWrite);
+        toWrite = c.data;
+        evict = c.evict;
+      }
+    }
 
     await st.setJSON(key, {
       data: toWrite,
@@ -155,6 +189,9 @@ export async function onRequest(context) {
       updatedAt: Date.now(),
       app: 'sales-copilot'
     });
+    /* 先写新快照、再删被收拢的旧文件：中途失败最多多留一份，不会丢数据 */
+    for (const k of evict) { try { await st.delete(k); } catch (e) { console.error('[sync] 收拢删除失败：', k, e && e.message); } }
+    if (evict.length) console.log('[sync] space=' + space + ' 设备数达上限，已收拢 ' + evict.length + ' 台最旧设备');
 
     /* 写完立刻把全部设备的合并结果算出来返回，
      * 客户端一步到位拿到最新，不用再发一次 GET */
