@@ -1,6 +1,6 @@
 {
   "name": "sales-copilot-premium",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "销冠助手：本地优先的销售工作台（PWA）",
   "license": "UNLICENSED",
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "node tools/build.js --pages",
+    "build:single": "node tools/build.js",
     "test": "node tools/test.js && node tools/test-version.js"
   }
 }

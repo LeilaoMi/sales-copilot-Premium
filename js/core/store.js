@@ -5,7 +5,7 @@
 window.Store = (function () {
 
   /* 应用版本号。发版时与 package.json、CHANGELOG.md 一起改，tools/test-version.js 校验三处一致 */
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const KEY = 'sales_copilot_v1';
 
   /* ---------- 常量字典 ---------- */

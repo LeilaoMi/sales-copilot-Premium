@@ -1,6 +1,6 @@
 {
   "name": "sales-copilot-edgeone",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "销冠助手 · EdgeOne Pages 同步后端（Node Functions + Blob）",
   "type": "module",

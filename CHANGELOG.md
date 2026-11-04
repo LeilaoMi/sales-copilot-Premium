@@ -3,6 +3,15 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 发版时同时修改 `package.json`、`js/core/store.js` 的 `VERSION` 和本文件，`node tools/test-version.js` 会校验三处一致。
 
+## [1.0.1] - 2026-11-04
+
+### 文档
+- README、部署手册、EdgeOne 说明按当前代码与线上部署重写，删除过时内容（表数量、邀请码位数、缓存版本、管理员权限、Node 版本等）。
+- `package.json` 新增 `build:single` 脚本。
+
+### 修复
+- 设置页同步说明里的模式名称与实际选项不一致（「Supabase / 云开发 REST」改为「Supabase 空间」/「Supabase 账号」）。
+
 ## [1.0.0] - 2026-11-04
 
 首个正式版本，基于全仓审计（audit/REPORT.md 的 4 Critical / 27 Major / 32 Minor）完成修复。

@@ -1321,7 +1321,7 @@ window.Views = (function () {
           </p>
           <p><b>② Supabase 免费版 · 3 分钟，长期用推荐这条</b><br>
             注册 supabase.com → 新建项目 → SQL Editor 里整段粘贴执行项目根目录的
-            <code>db/supabase.sql</code> → 回来选「Supabase / 云开发 REST」，填 Project URL 和 anon key。
+            <code>db/supabase.sql</code> → 回来在下方「同步方式」选「Supabase 空间」（自己多台设备）或「Supabase 账号」（多人 / 团队），填 Project URL 和 anon key。
             数据落在<b>你自己的账号</b>里，谁都看不到，也不用你管服务器。
           </p>
           <p><b>③ 数据码手动同步 · 0 配置，30 秒一次</b><br>

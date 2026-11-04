@@ -1,292 +1,314 @@
 # 销冠助手 · 个人销售作战台
 
-> 零依赖 · 本地优先 · 断网可用 · PWA 可安装 · Supabase 可选同步
->
-> 一个跑在浏览器里的个人销售作战台。没有账号体系也能用，没有服务器也能记，没有月费。
-> 打开网页就能用，关掉网页数据还在。
->
-> 数据存在本机浏览器里。iPhone / Mac 的 Safari 对没加到主屏幕的网站，7 天没打开可能清掉本地数据；建议添加到主屏幕、开启同步，或定期在设置页导出备份。设置页会显示浏览器是否授予了长期保存。
+[![CI](https://github.com/LeilaoMi/sales-copilot-Premium/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LeilaoMi/sales-copilot-Premium/actions/workflows/ci.yml)
+[![版本](https://img.shields.io/github/v/release/LeilaoMi/sales-copilot-Premium?label=版本)](https://github.com/LeilaoMi/sales-copilot-Premium/releases)
+[![许可](https://img.shields.io/badge/许可-保留所有权利-lightgrey)](LICENSE)
 
-- 仓库：https://github.com/LeilaoMi/sales-copilot-Premium
-- 技术栈：原生 HTML / CSS / JavaScript，无框架、无 npm 运行时依赖、无 CDN
-- 代码规模：`js/` 下 18 个模块（17 个由 `index.html` 按序加载）+ 1 个零依赖 Node 同步服务，全仓库约 1.45 万行
+> 跑在浏览器里的个人销售作战台：本地优先、断网可用、可安装到主屏幕，按需开启 Supabase 云同步和团队看板。
+
+- 线上地址：<https://sales.leilaomi.cc.cd>（Cloudflare Pages，`main` 分支合并后自动部署）
+- 当前版本：**1.0.1**，变更见 [CHANGELOG.md](CHANGELOG.md)
+- 技术栈：原生 HTML / CSS / JavaScript，无框架、无 CDN、无运行时 npm 依赖
+- 规模：`js/` 下 18 个模块（17 个由 `index.html` 按顺序加载），另有零依赖 Node 同步服务；代码约 1.56 万行
+
+> **许可**：版权所有 © 2026 LeilaoMi，保留所有权利。仓库公开仅供查阅，未经书面许可不得复制、修改、分发或部署。下文的安装与部署说明供作者及获授权者使用，详见 [LICENSE](LICENSE)。
 
 ---
 
 ## 目录
 
-- [1. 为什么是它](#1-为什么是它)
-- [2. 功能总览](#2-功能总览)
-- [3. 环境要求](#3-环境要求)
-- [4. 安装与运行](#4-安装与运行)
-- [5. 使用方法](#5-使用方法)
-- [6. 部署到线上](#6-部署到线上)
-- [7. 数据与隐私](#7-数据与隐私)
-- [8. 项目结构](#8-项目结构)
-- [9. 常见配置项](#9-常见配置项)
-- [10. 本地开发](#10-本地开发)
-- [11. 常见问题 FAQ](#11-常见问题-faq)
+1. [定位](#1-定位)
+2. [功能](#2-功能)
+3. [快速开始](#3-快速开始)
+4. [使用指南](#4-使用指南)
+5. [同步与团队](#5-同步与团队)
+6. [部署](#6-部署)
+7. [数据与隐私](#7-数据与隐私)
+8. [项目结构](#8-项目结构)
+9. [配置项](#9-配置项)
+10. [开发与测试](#10-开发与测试)
+11. [常见问题](#11-常见问题)
+12. [版本与许可](#12-版本与许可)
 
 ---
 
-## 1. 为什么是它
+## 1. 定位
 
-销售工具的通病是：**记起来太麻烦，所以用两天就废了。**
-
-传统 CRM 填十几个字段才存得进一条跟进，结果就是晚上补记、凭印象填、数据全是假的。
-本工具只围绕一件事：**让你在客户楼下等电梯的 30 秒里，把刚发生的事记完。**
+传统 CRM 填十几个字段才能存一条跟进，结果是晚上凭印象补记。销冠助手只围绕一件事：**在客户楼下等电梯的 30 秒里，把刚发生的事记完。**
 
 | 对比项 | 常见 CRM | 销冠助手 |
 |---|---|---|
 | 记一条跟进 | 打开表单 → 选客户 → 选类型 → 填内容 → 提交 | 一句话，回车，确认即存 |
-| 安装 | 公司服务器 / SaaS 账号 | 一个 HTML 文件，或一个网址 |
+| 安装 | 公司服务器 / SaaS 账号 | 一个网址，或一个 HTML 文件 |
 | 断网 | 用不了 | 照常用，联网后自动补同步 |
-| 数据归属 | 厂商的库 | 你浏览器的 localStorage |
-| 成本 | 按人头按月 | 0 |
+| 数据归属 | 厂商的库 | 你浏览器的 localStorage，开同步才上云 |
 
-**三条定位：**
+三条原则：
 
-1. 先是一个人的本地工具，后才是团队工具，没登录也能完整用。
-2. 规则优先，AI 兜底，电梯口地铁里没网也能记。
-3. 先出结果再确认入库，脏数据比不记更糟。
-
----
-
-## 2. 功能总览
-
-共 9 个模块，底部页签切换。`团队` 只对管理员显示（普通成员看到它只会是一片空白）。
-
-| 模块 | 一句话 | 关键点 |
-|---|---|---|
-| 战情台 | 打开即作战面板 | 顶栏三个实时指标（本月业绩 / 目标完成 / 待跟进）+ 本月目标环形图、核心指标、在谈商机加权预测、今日作战清单、近 6 个月业绩折线、销售漏斗、客户分级、本月冲刺提示 |
-| 客户库 | 分级管理 + 详情时间线 | A 重点 / B 常规 / C 观察；状态潜在 / 跟进中 / 已成交 / 已流失；详情含跟进线、关联商机、该盯什么话术（`coach.js` 主动推，不等你搜） |
-| 商机看板 | 七列拖拽推进 | 线索 10% / 接触 25% / 方案 45% / 报价 65% / 谈判 80% / 赢单 100% / 输单 0%，输赢单都在板上：拖到赢单自动计入业绩，拖到输单会提醒补输单原因（商机表单里的字段）并当场弹一次复盘；业绩统计与销售漏斗不计输单 |
-| 跟进日志 | 全部跟进倒序 | 按客户、类型筛选；聊天记录粘贴即提取双方承诺 / 异议 / 下一步 / 风险（纯规则，离线可用）；可改用 AI 深度解析，多出摘要与建议回复 |
-| 话术库 | 48 条内置 + 78 条军火库 | 内置 9 大类语义检索；一键加载「实战军火库」15 类知识型条目，看中哪条存入自己的话术库；赢单输单当场沉淀 |
-| 周报 | 自动归拢一段时间动作 | 本周 / 上周 / 近 7 天 / 本月 / 上月 / 近 30 天六个口径，四段式文本可直接复制发出 |
-| AI 助手 | 可选增强 | 6 个场景：跟进纪要、周报润色、输单复盘、作战建议、客户作战简报、话术军火。需配 Key，不配不影响其他功能 |
-| 团队看板 | 只管理员可见 | 全队 in-flight 金额 / 商机数 / 本月赢单 / 逾期 / 沉默天数，按人汇总。数据只能经数据库函数 `team_record_facts()` 取阶段、金额、日期这几个统计字段，管理员读不到成员的客户名、电话和备注 |
-| 设置 | 个人 + 系统配置 | 目标、提成、AI、同步、健康度、提醒、导入导出、PWA，详见 [第 9 节](#9-常见配置项) |
-
-**跨模块能力**：顶栏全局搜索（回车跳到客户库并带上关键词）、`+ 记跟进` / `+ 新客户` 快捷按钮、同步胶囊（状态一目了然，点击立即同步）、浏览器桌面通知（到点主动提醒）、PWA 安装到主屏幕、`Esc` 关闭弹窗。
+1. 先是一个人的本地工具，再是团队工具；不登录也能完整使用。
+2. 规则优先，AI 兜底；没网也能记。
+3. 先出结果再确认入库；脏数据比不记更糟。
 
 ---
 
-## 3. 环境要求
+## 2. 功能
 
-| 用途 | 需要什么 | 说明 |
-|---|---|---|
-| 只是用（网页版 / 单文件版） | 任一现代浏览器（Chrome / Edge / Safari / Firefox） | 不需要 Node，不需要装任何东西 |
-| 构建单文件版 / `public/` | Node.js（本机 `node tools/build.js` 实测 Node 22 可用） | 构建脚本只用 Node 内置模块，**无需 `npm install`**（仓库根本没有根 `package.json`） |
-| 跑源码 | 任一静态 HTTP 服务 | `python3 -m http.server` 或 `node server/server.js` 都行 |
-| 自托管同步服务 | Node.js（仓库不声明 engines） | 只用内置模块，实测 Node 22 通过；官方镜像用 `node:20-alpine`，照它选最稳 |
-| 云端同步 | 一个免费 Supabase 项目 | 只在前端配置，无需服务端部署 |
-| EdgeOne 同步后端 | Node ≥ 18 + `@edgeone/pages-blob` | 全仓库唯一有 npm 依赖的地方，在 `deploy/edgeone/` |
-| 重新生成军火库数据 | Python 3 | 只有改 `kb/` 才需要，日常用不到 |
+底部共 9 个页签，`团队` 只对管理员显示。
 
-> 通知和 PWA 安装都要求 HTTPS（或 localhost）：`file://` 打开单文件版时这两项会静默跳过，其余功能不受影响。
+| 模块 | 说明 |
+|---|---|
+| 战情台 | 顶栏三项实时指标（本月业绩、目标完成、待跟进），目标环形图、在谈商机加权预测、今日作战清单、近 6 个月业绩、销售漏斗、客户分级、冲刺提示 |
+| 客户库 | A 重点 / B 常规 / C 观察三级；状态潜在 / 跟进中 / 已成交 / 已流失；详情含跟进时间线、关联商机和推荐话术 |
+| 商机看板 | 七列拖拽：线索 10%、接触 25%、方案 45%、报价 65%、谈判 80%、赢单 100%、输单 0%。拖到赢单计入业绩，拖到输单提醒补原因并弹复盘 |
+| 跟进日志 | 全部跟进倒序，按客户和类型筛选；粘贴聊天记录即提取承诺、异议、下一步、风险（纯规则，离线可用），可选 AI 深度解析 |
+| 话术库 | 内置 48 条（9 类）+ 可加载的实战军火库 78 条（15 类），语义检索；赢单、输单当场沉淀 |
+| 周报 | 本周 / 上周 / 近 7 天 / 本月 / 上月 / 近 30 天六个口径，四段式文本可直接复制 |
+| AI 助手 | 跟进纪要、周报润色、输单复盘、作战建议、客户作战简报、话术军火 6 个场景；不配 Key 不影响其他功能 |
+| 团队 | 管理员可见的进度看板：按人汇总在谈金额、商机数、本月赢单、逾期、沉默天数。只拿统计字段，看不到成员的客户内容 |
+| 设置 | 目标、提成、AI、同步、账号与团队、健康度、提醒、数据管理、安装状态；底部显示版本号 |
+
+跨模块：顶栏全局搜索、`+ 记跟进` / `+ 新客户` 快捷按钮、同步胶囊（显示状态，点击立即同步）、到期桌面通知、PWA 安装、`Esc` 关闭弹窗。
 
 ---
 
-## 4. 安装与运行
+## 3. 快速开始
 
-### 方式一：单文件版（推荐先试两天）
+### 3.1 环境要求
 
-```bash
-node tools/build.js
-```
+| 用途 | 需要 |
+|---|---|
+| 使用 | 任一现代浏览器（Chrome、Edge、Safari、Firefox） |
+| 构建、自托管同步服务 | Node.js ≥ 18（`package.json` 的 `engines`；CI 与 Docker 镜像用 Node 22）。只用内置模块，**无需 `npm install`** |
+| 云同步 / 团队 | 一个 Supabase 项目 |
+| EdgeOne 同步后端 | Node ≥ 18 + `@edgeone/pages-blob`（仅 `deploy/edgeone/` 需要安装依赖） |
+| 数据库权限测试 | `tools/rls/` 下 `npm install`（PGlite） |
+| 重新生成军火库 | Python 3 |
 
-生成 `销冠助手-单文件版.html`（约 540 KB），**落在仓库的上一级目录**（构建脚本刻意不把产物写进仓库）。双击即用，可丢网盘发微信存手机。
+通知和 PWA 安装要求 HTTPS 或 localhost。
 
-单文件版的取舍：没有实战军火库（`file://` 拉不到 `kb/knowledge.json`），不注册 Service Worker（因而无离线缓存与 PWA 安装），不发系统通知。**其余功能与网页版完全一致。**
-
-### 方式二：本地跑源码
+### 3.2 本地运行源码
 
 ```bash
 git clone https://github.com/LeilaoMi/sales-copilot-Premium.git
 cd sales-copilot-Premium
-python3 -m http.server 8000
+python3 -m http.server 8000      # 或 node server/server.js
 # 浏览器打开 http://localhost:8000
 ```
 
-任何静态服务器都行。**不能直接双击 `index.html`** —— 浏览器不允许 `file://` 加载多文件 JS。
+不能直接双击 `index.html`：浏览器不允许 `file://` 加载多个脚本文件。
 
-### 方式三：自带同步后端（局域网 / 自托管）
+### 3.3 单文件版
 
 ```bash
-node server/server.js                      # 默认 http://localhost:8080
-PORT=3000 node server/server.js            # 换端口
-SYNC_TOKEN=你的长令牌 node server/server.js # 固定令牌，多人共享一份数据
+npm run build:single             # 等同 node tools/build.js
 ```
 
-一个文件同时提供静态站点 + `GET/PUT /api/sync` + `GET /api/health` + `GET /api/backups`。
-不配 `SYNC_TOKEN` 时是「令牌即空间」模式：**任何 ≥8 位的令牌都会自动开一个独立空间**，各设备填同一令牌即可，控制台首次启动会把建议令牌写到 `data/token.txt`。
+生成 `销冠助手-单文件版.html`（约 540 KB），**写在仓库的上一级目录**，双击即可使用。取舍：没有实战军火库（`file://` 读不到 `kb/knowledge.json`），不注册 Service Worker（无离线缓存与安装），不发系统通知；其余功能与网页版一致。
 
-所有同步数据落到 `data/store-<令牌哈希>.json`，写入是 tmp + rename 原子替换；另自动保留近期快照（默认 10 份）与每日快照（默认 7 天），在 `data/backups/`。完整的自托管参数见 [第 9 节的服务端环境变量](#9-常见配置项)。
+### 3.4 自带同步服务
 
-> **自托管必看的两条**：① 这个服务的站点根就是仓库根，而 `data/` 就在里面——同步令牌（`data/token.txt`）和全量客户快照一旦公网可读，等于名单外泄。静态层已把 `data/`、`server/`、`node_modules/` 与点开头目录一律挡成 403，部署后照 `docs/DEPLOY.md` 5.5 验一遍。② 只讲 HTTP，挂公网必须前置 HTTPS 反代，并建议固定 `SYNC_TOKEN`（令牌等同数据访问凭证）。
+```bash
+node server/server.js                         # http://localhost:8080
+SYNC_TOKEN=至少16位的随机串 node server/server.js  # 专属模式
+```
 
-> 首次打开带示例数据（10 家客户、19 商机、13 跟进），设置里清空即可，不会再自动出现。
+同一进程提供静态站点和同步接口，详见 [第 6.3 节](#63-自托管)。
+
+首次打开会载入示例数据（10 家客户、19 个商机、13 条跟进），在设置里清空后不会再出现。
 
 ---
 
-## 5. 使用方法
+## 4. 使用指南
 
-### 5.1 一句话录入
+### 4.1 一句话录入
 
-战情台顶部输入框，一句话回车自动拆字段，确认即存，原文保留不动。
+战情台顶部输入框，一句话回车自动拆字段，确认后入库，原文保留。
 
 ```
 今天去了王总那儿，聊了报价，他说下周三再联系
 ```
 
-| 字段 | 结果 | 说明 |
+| 字段 | 结果 | 依据 |
 |---|---|---|
 | 客户 | 恒力精工制造（王建国） | `王总` 按姓加职务命中 |
-| 类型 | 拜访 | `去了` 命中拜访 |
+| 类型 | 拜访 | `去了` |
 | 下次跟进 | 下周三 | 意图词 `再联系` 附近的时间 |
 
-客户匹配三轮：全名最长命中 → 简称 4 到 2 字（多人判歧义，弹候选让你挑）→ 姓加职务（王总 / 陈经理 / 马主任，15 个职务词 + 16 个复姓单独处理，同姓用公司简称消歧）。
+- 客户匹配三轮：全名最长命中 → 4 到 2 字简称（重名弹候选）→ 姓加职务（15 个职务词，复姓单独处理，同姓用公司简称消歧）。
+- 时间支持今天 / 明天 / 后天 / 大后天 / 周X / 下周X / 下下周X / N 天后 / N 周后 / N 个月后 / 月底 / 具体日期（已过的日期滚到明年），中文数字可用。
+- 只有出现 `下次 / 回头 / 再联系 / 再跟进 / 改天 / 到时候` 等意图词才设下次跟进，且只取意图词附近的时间。`他说下周三报价` 是对方的时间，不会设成你的跟进。
 
-时间听懂今天 / 明天 / 后天 / 大后天 / 周X / 下周X / 下下周X / N 天后 / N 周后 / N 个月后 / 9 月 5 日（已过日期自动滚到明年），周一为周首。
+### 4.2 聊天记录提取
 
-> 克制：只有 `下次 / 回头 / 再联系 / 再跟进 / 改天 / 到时候` 等意图词出现才设下次跟进，而且只在意图词附近找时间。
-> `他说下周三报价` 是对方时间，不等你要联系，宁可不设。句首 `今天去了` 是行动时间，不误取今天。
+跟进日志页粘贴一段聊天记录，规则版立刻给出：我方承诺、客户承诺（带日期）、异议（13 类）、下一步、金额与数量、6 组风险信号。全部是草稿，勾选后才入库。配了 AI Key 可切换「AI 深度解析」，结构相同，多出摘要和建议回复。
 
-### 5.2 聊天记录提取（`digest.js`，不依赖 AI）
+### 4.3 商机健康度
 
-跟进日志页粘贴一段微信记录，规则版立刻给出：我承诺 / 客户承诺（带日期）/ 异议（13 类槽位）/ 下一步 / 金额与数量 / 6 组风险信号。全部是草稿，勾一下才入库。配了 AI Key 可切「AI 深度解析」，结构一致，多一段摘要和建议回复。
-
-### 5.3 商机健康度
-
-在谈商机 0–100 分（起点 100），四个信号各自独立扣分，并给一句话动作。
+在谈商机从 100 分起扣，四个信号独立计算，并给出一句话动作建议：
 
 | 信号 | 最多扣 | 判定 |
 |---|---|---|
-| 沉默 | 35 | 对比你自己的跟进节奏（超 1.6 倍算异常，按 1→2.5 倍线性扣分） |
-| 阶段停滞 | 30 | 对比你走完该阶段的历史耗时（中位数，需 ≥3 样本） |
-| 临期 / 过期 | 35 | 过期 >14 天扣 35，过期 14 天内扣 25，剩 ≤3 天扣 12，≤7 天扣 6 |
-| 无实质推进 | 10 | 近 30 天没换阶段也没记跟进 |
+| 沉默 | 35 | 对比你自己的跟进节奏，超过 1.6 倍算异常，1 到 2.5 倍线性扣分 |
+| 阶段停滞 | 30 | 对比你走完该阶段的历史中位耗时（需至少 3 个样本） |
+| 临期 / 过期 | 35 | 过期超 14 天扣 35，14 天内扣 25，剩 3 天内扣 12，剩 7 天内扣 6 |
+| 无实质推进 | 10 | 近 30 天没换阶段也没跟进 |
 
-基准自学习：你自己的节奏要 ≥3 条跟进才采信（中位数限制在 3–90 天），样本不足退回 A/B/C 分级兜底（12 / 18 / 30 天）并在页面上明说是估算。新建 3 天内不评级，点「知道了」后默认 7 天不再提，提醒松紧三档 0.7 严格 / 1 标准 / 1.5 宽松（代码支持 0.4–2.5，越小越敏感）。低于 50 分为风险，低于 75 为提醒。
+节奏基准需要至少 3 条跟进才采信（中位数限制在 3 到 90 天），不足时按客户分级估算（A 12 天、B 18 天、C 30 天）并在页面注明。新建 3 天内不评级；点「知道了」后默认 7 天不再提示；灵敏度三档 0.7 / 1 / 1.5（代码支持 0.4 到 2.5）。低于 50 分为风险，低于 75 分为提醒。
 
-### 5.4 回款预测与目标倒推
+### 4.4 回款预测与目标倒推
 
 ```
-保守 = Σ(金额 × 本月内成交概率 × 阶段赢率)   时间与赢率都打折
-乐观 = Σ(金额 × 本月内成交概率)             只赌时间，假设谈得成
+保守 = Σ(金额 × 本月内成交概率 × 阶段赢率)
+乐观 = Σ(金额 × 本月内成交概率)
 ```
 
-阶段赢率优先用你自己的历史成交算（需 ≥3 单且有输有赢），样本不够用默认档。没填预计成交日的按最低估并提醒补。倒推给还差多少、差几单、来不来得及——月末最后 10 天才警告缺口，月初不刷屏。
+阶段赢率优先用你的历史成交计算（至少 3 单且有输有赢），否则用默认档。没填预计成交日的商机按最低估并提醒补填。倒推给出差额、差几单、是否来得及，月末最后 10 天才提示缺口。
 
-### 5.5 话术库与实战军火库
+### 4.5 话术库与实战军火库
 
-**内置 48 条，9 大类**（`js/features/playbook.js` 种子，可直接改）：
+内置 48 条（`js/features/playbook.js` 的 `SEED`）：异议处理 16、催单推进 6、开场破冰 5、需求挖掘 5、售后维护 5、谈判博弈 4、方案报价 3、复盘沉淀 2、交付履约 2。
 
-| 分类 | 条数 | 分类 | 条数 |
-|---|---|---|---|
-| 异议处理 | 16 | 谈判博弈 | 4 |
-| 催单推进 | 6 | 方案报价 | 3 |
-| 开场破冰 | 5 | 复盘沉淀 | 2 |
-| 需求挖掘 | 5 | 交付履约 | 2 |
-| 售后维护 | 5 | | |
+检索为四路加权：意图标签 0.40、分词余弦 0.30、全文 0.15、标签字面 0.15。`嫌贵` 能命中标题里没有「贵」字的话术，结果会显示命中的场景。
 
-检索不是关键词匹配：意图标签 0.40 + 分词余弦 0.30 + 全文 0.15 + 标签字面 0.15 四路加权，`嫌贵` 能命中标题里没有「贵」字的话术，结果会回显「命中场景：…」告诉你为什么匹配上。
+实战军火库 78 条（`kb/knowledge.json`，点「加载军火库」时才下载）：异议应对 18、开场破冰 10、催单推进 6、谈判博弈 6、方案报价 5、行业知识 5、需求挖掘 5、复盘沉淀 4、标准话术 4、流程方法 4、售后维护 3、交付履约 2、客户关系 2、成交案例 2、竞品对比 2。内容由 AI 辅助整理，使用前请自行核实；存入自己的话术库后可编辑。
 
-**实战军火库 78 条，15 类**（`kb/knowledge.json`，随站点部署、点「加载军火库」才下载、复用同一套检索）：异议应对 18、开场破冰 10、催单推进 6、谈判博弈 6、方案报价 5、行业知识 5、需求挖掘 5、复盘沉淀 4、标准话术 4、流程方法 4、售后维护 3、交付履约 2、客户关系 2、成交案例 2、竞品对比 2。数据由 AI 辅助整理（`tools/gen-kb-seed.py`），**用前自行核实**。看中哪条一键存入自己的话术库后即归你所有、可编辑。
+### 4.6 AI 助手
 
-赢单输单当场会弹窗让你把这次真正起效的话沉淀成自己的话术。
+设置里选服务商、填 Key、保存并测试。共 32 个选项，均走 OpenAI 兼容协议，地址写法不对时会自动尝试常见变体。
 
-### 5.6 AI 助手（32 家服务商）
+| 分组 | 服务商 |
+|---|---|
+| 国内（12） | DeepSeek、智谱 GLM、通义千问、硅基流动、Kimi、豆包、百度千帆、讯飞星火、腾讯混元、阶跃星辰、零一万物、MiniMax |
+| 海外（16） | OpenAI、Azure OpenAI、Claude、Gemini、Groq、Mistral、Grok、OpenRouter、Together、Fireworks、Perplexity、Cerebras、SambaNova、Nebius、Novita、DeepInfra |
+| 本机 / 自建（3） | Ollama、LM Studio、vLLM（需开启跨域） |
+| 自定义（1） | 任意 OpenAI 兼容地址 |
 
-不配 Key 不影响任何其他功能。设置里选服务商、填 Key、保存并测试，各家都兼容 OpenAI 协议；地址填错会自动试 6 种常见写法。
+豆包、讯飞星火、Groq、Cerebras、SambaNova 五家的接口不允许浏览器直连（CORS），下拉里有标记。
 
-| 分组 | 数量 | 名单 |
-|---|---|---|
-| 国内直连 | 12 | DeepSeek、智谱 GLM、通义千问、硅基流动、Kimi、豆包、百度千帆、讯飞星火、腾讯混元、阶跃星辰、零一万物、MiniMax |
-| 海外 | 16 | OpenAI、Azure OpenAI、Claude、Gemini、Groq、Mistral、Grok、OpenRouter、Together、Fireworks、Perplexity、Cerebras、SambaNova、Nebius、Novita、DeepInfra |
-| 本机 / 自建 | 3 | Ollama、LM Studio、vLLM |
-| 自定义 | 1 | 任意 OpenAI 兼容地址 |
+**联网增强（选填）**：另填一个 Tavily Key，「客户作战简报」会并行查询公司动态和行业趋势，来源随简报列出；不填则纯模型生成并标注「待核实」。
 
-> 实测口径（`ai.js` 注释里记着）：国内 12 家端点已实测有效（2026-09-01 全部返回 401/403，说明地址对、只差 Key）；海外 OpenAI、Claude、Gemini、Mistral、Grok、Perplexity 6 家因环境连不上**未实测**，地址按各家官方文档预设；本机 3 家要额外开跨域才能被浏览器直连（Ollama 设 `OLLAMA_ORIGINS=*`，LM Studio 勾选允许 CORS，vLLM 由网关放行），下拉里都有提示。
+### 4.7 周报与陪练
 
-> 5 家浏览器直连被 CORS 拦死：豆包、讯飞星火、Groq、Cerebras、SambaNova。下拉里有标记，别反复试 Key，换 DeepSeek / 智谱 / 通义 / 硅基。
+周报由本地台账直接计算，四段式（进展 / 重点客户 / 下一步 / 风险），可让 AI 润色。
 
-**联网增强（Tavily，选填）**：设置 → AI 助手里另填一个 Tavily Key（tavily.com 免费注册，每月 1000 次）。「客户作战简报」生成时会并行发两条查询（公司最新动态 + 行业趋势痛点），单条失败不影响另一条，情报来源随简报列出。不填则维持纯模型生成并标注「待核实」。
+陪练由 AI 扮演客户，三种难度，每 3 轮点评一次，结束打 0 到 100 分。场景取自话术库中以「客户说」「对方」开头的条目（内置 48 条中有 23 条），你新建的同格式话术会自动加入。没配 Key 时改为对照参考答案练习。
 
-### 5.7 周报与陪练
+### 4.8 跟进提醒
 
-周报纯本地算术归拢，数字只从台账来，不经 AI 也不会漏单；四段式（进展 / 重点客户 / 下一步 / 风险）可直接复制发老板，配了 Key 可让 AI 润色。
+只提醒两类：已逾期，以及 48 小时内到期。每 30 分钟检查一次，每天最多一轮（按客户和到期日去重），点击跳到客户库。没有通知权限时改为页面角标。提醒靠页面内定时检查，**页面或已安装的应用需要开着**；安卓 Chrome 经 Service Worker 弹出通知。
 
-陪练是 AI 扮演客户跟你过招，三种难度（客气 / 正常 / 刁钻），每 3 轮自动点评一次，结束给 0–100 分——**价值在点评不在聊天**。场景从话术库现挑，只认「客户说」「对方」开头的标题，所以 48 条里 23 条适合对练属正常；你自建的同格式话术会自动进来。没配 Key 时退化为背书练习（对着库里的参考答案练）。打完可一键存成自己的话术。
+### 4.9 备份与换机
 
-### 5.8 跟进提醒
+设置 → 数据管理：
 
-系统桌面通知只看两件事：已逾期，以及 48 小时内到期。每 30 分钟检查一次，一天最多提醒一轮（按客户 + 到期日去重），正文列前 3 家加「等 N 家」，点击直接跳到客户库。不给通知权限或环境不支持时，退化成页面上的红色角标计数。需 HTTPS。安卓 Chrome 经 Service Worker 弹出通知；提醒靠页面里的定时检查，**页面（或已安装的 PWA）需要开着**，关掉后不会推送。
+- **导出备份 JSON**：默认不含 API Key 和同步凭据；勾选后才包含。
+- **导入备份**：保留本机设备 ID 和凭据。
+- **导出客户 CSV**：带 UTF-8 BOM，Excel 直接打开。
+- **数据码**：全量数据压成一段文本，发给自己后在另一台设备粘贴导入；不含 Key 和凭据。
+- **载入示例 / 清空业务数据 / 压缩数据**（清除 30 天前的删除记录）。
 
-### 5.9 换机与备份
-
-设置 → 数据管理：导出 / 导入备份 JSON、导出客户 CSV（带 UTF-8 BOM，Excel 直接打开不乱码）、**数据码**（把全量数据压成一段 base64 文本，微信发给自己，另一台设备粘贴导入即可，30 秒搞定，零配置；导入以导入内容为准；数据码不含 API Key 和同步凭据，备份 JSON 含）、载入示例、清空全部业务数据、压缩数据（清掉 30 天前的删除记录；更近的要留着同步给其他设备）。
-
-### 5.10 多人、团队与同步
-
-**四种同步模式**（设置 → 云同步，随时可切）：
-
-| 模式 | 界面文案 | 粒度 | 适合 |
-|---|---|---|---|
-| `off` | 关闭（仅存本机） | — | 一台设备，或先试试 |
-| `http` | 自建 / 兼容服务器 | 整包快照 | 自己跑 `server/server.js`，或任何提供 `GET`/`PUT` 快照的接口 |
-| `supabase` | Supabase 空间 | 整包快照 | 一个人多台设备，共用一张 `sales_sync` 表，靠「空间名」隔离（空间名 ≥16 位，相当于密码；整包不含 AI/搜索 Key） |
-| `cloud` | Supabase 账号 | **逐条记录 + RLS** | 多人 / 团队，数据按账号隔离，管理员能看全队进度 |
-
-规则：本地优先，先写 localStorage 再上云；逐条按 `updatedAt` 最后修改者赢，删除走墓碑标记，所以换设备也能同步「已删掉」。本地改动 4 秒后自动推送，每 60 秒拉一次云端（标签页在后台时不拉），断网重连立刻补一次。`settings.sync` 这段配置永远以本机为准，远端推不动它。
-
-**登录门**：Supabase 地址与 key 出厂内置（`auth.js` 的 `DEFAULT_CLOUD`，用的是 publishable key，本来就会随前端 JS 公开）。新设备首次打开自动弹全屏登录页——登录即自动切到 `cloud` 模式并拉取数据，手机电脑同一份；想纯本地用点「先逛逛」，此后不再自动弹（下次登录成功会清掉该标记）。本机残留的示例数据在首次同步后自动清理（`Store.purgeDemo`），不会混进真实数据。
-
-**搭团队**：建 Supabase 项目 → SQL Editor 执行 `db/supabase.sql`（幂等，可重复跑）→ 设置里填 URL + anon key → 首个注册者自动成为拥有者并建队 → 生成 12 位邀请码（旧的 8 位码继续有效；输错 10 次锁 15 分钟）发给同事，对方在「账号与团队」里自助加入。角色三级 `owner` / `admin` / `member`，隔离做在 Postgres RLS 层：管理员只读得到同团队成员的数据，改不动别人的客户和报价，也看不到成员的 API Key。`team_scripts`（团队共享话术）表已建好，但前端**尚未接入**，目前话术库仍是个人的。七张表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`，以及只供邀请码限流用的 `join_attempts`。
+存储写入失败或数据损坏时会弹出提示，损坏的原文另存一份，不会被覆盖。iPhone / Mac 的 Safari 对未添加到主屏幕的网站可能在 7 天未访问后清除本地数据，设置页会显示浏览器是否授予了长期保存。
 
 ---
 
-## 6. 部署到线上
+## 5. 同步与团队
 
-> **只部署 `public/`。** 仓库根里的 `data/` 是真实客户资料，静态托管上传的每个文件都公开可下载，整目录上传等于把名单挂公网。构建脚本自带泄漏检查：`public/` 里出现 `data/` 或业务 JSON 会直接报错拦下。
+### 5.1 四种同步模式
 
-| 目标 | 命令 / 配置 | 同步怎么走 |
+设置 → 云同步，可随时切换：
+
+| 模式 | 界面名称 | 粒度 | 适合 |
+|---|---|---|---|
+| `off` | 关闭（仅存本机） | — | 单台设备 |
+| `http` | 自建 / 兼容服务器 | 整包快照 | `server/server.js` 或 EdgeOne 适配器 |
+| `supabase` | Supabase 空间 | 整包快照 | 一个人多台设备，共用 `sales_sync` 表，按「空间名」隔离 |
+| `cloud` | Supabase 账号 | 逐条记录 + RLS | 多人 / 团队，按账号隔离 |
+
+- 本地优先：先写 localStorage 再上云。逐条按 `updatedAt` 后写覆盖，删除用墓碑标记同步。
+- 本地改动 4 秒后推送，每 60 秒拉取一次（标签页在后台时暂停），断网重连后立即补同步。
+- `supabase` 模式的空间名至少 16 位，相当于密码：数据库只返回请求头 `x-sync-space` 与之相同的那一行。推送内容不含 AI / 搜索 Key 和同步配置。
+- `settings.sync` 始终以本机为准，不会被远端覆盖。
+
+### 5.2 账号登录
+
+Supabase 地址与 publishable key 内置在 `js/core/auth.js` 的 `DEFAULT_CLOUD`，指向作者的项目。新设备首次打开会弹出登录页，登录后自动切到 `cloud` 模式并拉取数据；点「先逛逛」则保持纯本地，之后不再自动弹出。首次同步后会清理本机的示例数据。可在设置「账号与团队」里换成自己的 Supabase 项目。
+
+### 5.3 团队
+
+1. 在 Supabase SQL Editor 执行 `db/supabase.sql`（幂等）。
+2. 设置里填 Project URL 和 anon key（用内置项目可跳过）。
+3. 首个注册者自动成为拥有者并建队，可生成 12 位邀请码（旧的 8 位码仍有效）；同一账号 15 分钟内输错 10 次会被限流。
+4. 同事在「账号与团队」里输入邀请码加入。
+
+角色分 `owner` / `admin` / `member`，隔离做在 Postgres RLS：
+
+- 成员只能读写自己的记录；记录的 `team_id` 由数据库按当前所在团队决定，退队后自动清空。
+- 用户不能修改自己的角色和所属团队（列级守卫触发器）。
+- 管理员**不能直接读取**成员记录，团队看板只能通过 `team_record_facts()` 拿到阶段、金额、成交日、下次跟进日、跟进时间五个字段；看不到客户名、电话、备注，也看不到成员的 API Key。
+- `team_scripts`（团队共享话术）表已建好，前端尚未接入，话术库目前仍是个人的。
+
+数据表：`profiles`、`teams`、`records`、`team_scripts`、`user_settings`、`sales_sync`、`join_attempts`（邀请码限流），保活表 `keepalive_logs` 在 `db/keepalive.sql`。
+
+---
+
+## 6. 部署
+
+完整步骤、验证清单和排错表见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
+
+| 目标 | 方式 | 同步 |
 |---|---|---|
-| Cloudflare Pages（推荐） | `node tools/build.js --pages` → `npx wrangler pages deploy public`；后台接 Git 时构建命令填 `node tools/build.js --pages`、输出目录填 `public` | Supabase（跑不了 Node） |
-| Vercel | 导入仓库，Framework 选 Other，Build Command 留空（零构建，`vercel.json` 已配好缓存与 `framework: null`） | Supabase（跑不了 Node） |
-| 自有服务器 / 树莓派 | `node server/server.js`（模板 `deploy/Dockerfile`、`deploy/sales-copilot.service`） | 两条都行 |
-| 腾讯云 EdgeOne Pages | 见 `deploy/edgeone/README.md`，用 Pages Blob 提供 `/api/sync`，免持久文件系统 | 自建接口 |
+| Cloudflare Pages（线上在用） | 连接 GitHub：构建命令 `node tools/build.js --pages`，输出目录 `public` | Supabase |
+| Vercel | 导入仓库，Framework 选 Other，Build Command 留空（`vercel.json` 已配好） | Supabase |
+| 腾讯云 EdgeOne Pages | 见 [deploy/edgeone/README.md](deploy/edgeone/README.md)，云函数 + Blob 提供 `/api/sync` | 自建接口 |
+| 自有服务器 | `node server/server.js`，或 `deploy/Dockerfile`、`deploy/sales-copilot.service` | 两种都行 |
 
-**线上地址**：<https://sales.leilaomi.cc.cd>。
-Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.pages.dev` 快照地址）
-只当**部署预览**用，别拿它当长期入口 —— 那个子域由项目名在创建那一刻定下来，
-之后改不掉（只能删项目重建），所以新建项目时名字要想清楚。书签、分享、写文档都走自定义域。
+### 6.1 静态托管只发布 `public/`
 
-构建脚本 `node tools/build.js --pages` 做四件事，别用手敲 `cp` 替代：清仓重建 `public/`、按 `index.html` 的实际引用复制资源、把 `deploy/_headers` 复制过去（缺了就报错拦停）、**重写 `public/sw.js` 的预缓存清单**（离线漏模块这个坑踩过两次，靠人记注释靠不住）。
+`node tools/build.js --pages` 会清空并重建 `public/`：按 `index.html` 的实际引用复制资源、复制 `deploy/_headers`、重写 `sw.js` 的预缓存清单，并在 `public/` 中出现 `data/` 或业务 JSON 时报错中止。不要手动复制文件替代。
 
-自托管两个模板都已按仓库实际布局写对启动路径（`node server/server.js`）：Docker 在**仓库根**执行 `docker build -t sales-copilot -f deploy/Dockerfile .`（`deploy/_headers` 那份同理，别去改构建产物里的副本）；systemd 照 `deploy/sales-copilot.service` 顶部步骤装，注意 `ProtectSystem=strict` 下要先建好并交出 `data/` 属主，起服务后用 `/api/health` 的 `storage:file` 确认数据真的落盘。
+### 6.2 线上站点
 
-**Supabase 免费项目保活**：`.github/workflows/supabase-keepalive.yml` 每 3 天往 `keepalive_logs` 表真实写入一行（2026 年起只读 ping 不再稳定计入活跃），防止免费项目 7 天不活跃被暂停；检测到休眠会把任务标红提醒去 Dashboard 手动 Restore。注意 GitHub 会在仓库 60 天无提交后自动停用定时任务。
+- 地址 <https://sales.leilaomi.cc.cd>，合并到 `main` 后由 Cloudflare Pages 自动构建部署，约 1 分钟生效。`*.pages.dev` 地址只作预览。
+- 安全头（CSP、`X-Frame-Options` 等）和缓存规则在 `deploy/_headers`；`sw.js`、`index.html`、根路径不缓存。
+- 该域名已关闭会向页面注入脚本的 JavaScript Detections，否则会与 CSP 冲突（设置作用于整个 `leilaomi.cc.cd` 区域）。
+- 已有数据库升级时，按日期顺序执行 `db/migrations/` 下的迁移；新建库只需执行 `db/supabase.sql`。
 
-上线后必做的 6 条验证（SW 是否拿到新代码、清空数据会不会长回来、两账号互相看不见、离线可用、`data/` 未泄露、PWA 安装）逐条写在 **[`docs/DEPLOY.md`](docs/DEPLOY.md)**，其中缓存与排错部分尤其是踩过坑的，别跳过。
+### 6.3 自托管
 
-手机浏览器「添加到主屏幕」即得全屏离线 App（iOS 只有 Safari 有这个选项）。
+`server/server.js` 同时提供静态站点与以下接口：
+
+| 接口 | 作用 |
+|---|---|
+| `GET /api/health` | 免鉴权，返回模式、存储类型（应为 `file`）、空间数 |
+| `GET /api/sync` | 拉取本空间快照（需令牌） |
+| `PUT /api/sync` | 上传快照，服务端合并后返回；请求体上限 8 MB |
+| `GET /api/backups` | 列出本空间历史快照 |
+
+其他 `/api/*` 返回 404；`data/`、`server/`、`node_modules/` 和点开头的路径返回 403。
+
+- 不设 `SYNC_TOKEN` 时为多人模式：任意至少 8 位的令牌各开一个独立空间，首次启动会把建议令牌写入 `data/token.txt`。
+- 数据写入 `data/store-<令牌哈希>.json`（临时文件 + 重命名，原子替换），近期快照保留 10 份、每日快照保留 7 天，在 `data/backups/`。
+- 只提供 HTTP，公网部署必须前置 HTTPS 反向代理，并建议设置固定 `SYNC_TOKEN`。
+- Docker：在仓库根执行 `docker build -t sales-copilot -f deploy/Dockerfile .`，镜像为 `node:22-alpine`、非 root 用户运行、带健康检查，容器内默认 `REQUIRE_DISK=1`（数据目录不可写时拒绝启动）。
+
+### 6.4 Supabase 保活
+
+`.github/workflows/supabase-keepalive.yml` 每 3 天向 `keepalive_logs` 写入一行（当前覆盖生产项目和一个测试项目），防止免费项目因 7 天不活跃被暂停；检测到项目休眠时任务会失败提醒。GitHub 会在仓库 60 天无活动后停用定时任务，workflow 每次运行会重新启用它。
 
 ---
 
 ## 7. 数据与隐私
 
-| 问题 | 答案 |
+| 问题 | 说明 |
 |---|---|
-| 数据存哪 | 浏览器 localStorage，键名 `sales_copilot_v1`；开了同步才在云端有一份 |
-| 作者服务器 | 登录页默认连的是作者的 Supabase 项目（`js/core/auth.js` 的 `DEFAULT_CLOUD`）：用它登录并开同步，数据就存在作者的项目里。不想这样，在设置里换成你自己的 Supabase，或不登录、只用本机 |
-| API Key | 存本机浏览器，直连你填的服务商；同步时会剔除，不上云；数据码也不带 |
-| AI 与联网情报 | 用到时会把相关客户的名称、备注、跟进内容等发给你配置的 AI 服务商，作战简报还会把公司名发给 Tavily。介意就别开 AI |
-| `data/` | `server/server.js` 的本地快照目录（含令牌与全量客户快照），已 gitignore，永不进库；自托管服务的静态层已把 `/data/*` 一律挡成 403。**跑的是旧版本的话它公网可下载，照 `docs/DEPLOY.md` 5.5 升级并换令牌** |
-| `public/` | 构建产物，已 gitignore，每次构建先清空 |
-| 换浏览器 / 清缓存 | 会没。开同步，或定期导出 JSON / 复制数据码 |
-| Supabase anon key | 公开无妨，真正的闸门是 RLS 行级安全；**service_role key 打死不能贴进网页** |
+| 数据存哪 | 浏览器 localStorage，键名 `sales_copilot_v1`；开启同步后云端另有一份 |
+| 默认云端 | 登录页默认连接作者的 Supabase 项目。用它登录并同步，数据就存放在该项目中。不希望如此，可换成自己的 Supabase，或只在本机使用 |
+| 团队管理员 | 只能看到统计数字，读不到成员的客户名、电话、备注 |
+| API Key | 只存本机浏览器，直连你配置的服务商；同步、数据码、默认导出都不包含 |
+| AI 与联网 | 使用 AI 功能时，相关客户名称、备注、跟进内容会发送给你配置的 AI 服务商；作战简报会把公司名发给 Tavily |
+| Supabase anon key | 可以公开，权限由 RLS 控制；**service_role key 绝不能放进网页** |
+| `data/` | 自托管服务的快照目录，含令牌和全量客户数据，已加入 `.gitignore` 和 `.dockerignore`，服务对外返回 403 |
+| 清浏览器数据 | 本地数据会丢失。请开启同步，或定期导出备份 |
 
 ---
 
@@ -294,143 +316,132 @@ Pages 给的 `*.pages.dev` 地址（包括每次部署生成的 `<short-id>.xxx.
 
 ```
 sales-copilot-Premium/
-├── index.html              唯一页面 + 页签 + 脚本加载顺序（顺序有依赖，注释写明了为什么）
+├── index.html              唯一页面，脚本按依赖顺序加载
 ├── manifest.json           PWA 清单
-├── sw.js                   Service Worker，缓存桶 sales-copilot-v6
-├── vercel.json             Vercel 缓存与项目配置（理由见 DEPLOY.md 第 7 节）
-├── wrangler.toml           Cloudflare Pages 项目配置（name=sales-copilot-premium，输出 public）
-├── assets/
-│   ├── css/styles.css      全部样式（约 700 行，CSS 变量驱动）
-│   └── icons/              192 / 512 / 512 maskable / apple-touch 四张图标
+├── sw.js                   Service Worker（缓存 sales-copilot-v7，预缓存清单由构建重写）
+├── package.json            版本号与 npm 脚本（无依赖）
+├── CHANGELOG.md · LICENSE
+├── vercel.json             Vercel 安全头与缓存配置
+├── wrangler.toml           Cloudflare Pages 配置（项目 sales-copilot-premium，输出 public）
+├── assets/                 styles.css（约 700 行）与 4 个图标
 ├── js/
-│   ├── core/               store.js 数据层 · sync.js 四种同步模式与本地合并 · auth.js 登录与账号通道
-│   │                       team.js 团队聚合（只读，内存快照）
-│   │                       sync-core.js 协议层（server 与 EdgeOne 共用，不由页面加载）
-│   ├── features/           quicklog 一句话录入 · health 健康度 · playbook 话术与检索
-│   │                       armory 军火库 · digest 记录提取 · report 周报 · coach 话术推送
-│   │                       sparring 陪练 · ai AI 接入 · charts 手写 SVG 图表 · notify 提醒
-│   └── ui/                 views.js 渲染 · ui.js 事件与动作
+│   ├── core/               store 数据层 · sync 四种同步模式 · auth 登录与团队接口
+│   │                       team 团队看板聚合 · sync-core 同步协议（服务端与 EdgeOne 共用，页面不加载）
+│   ├── features/           quicklog 一句话录入 · digest 聊天提取 · health 健康度 · playbook 话术检索
+│   │                       armory 军火库 · coach 话术推荐 · report 周报 · sparring 陪练
+│   │                       ai AI 接入 · charts SVG 图表 · notify 提醒
+│   └── ui/                 views 渲染 · ui 事件与动作
 ├── server/server.js        零依赖同步服务 + 静态站点 + 快照备份
-├── db/supabase.sql         业务表 + RLS 策略 + security definer 函数（幂等）
-├── db/keepalive.sql        保活表 keepalive_logs（独立于业务，幂等）
-├── db/new_table_template.sql 新增表时照抄的 RLS 模板
-├── db/migrations/          已有库的增量迁移（按日期命名，幂等）
-├── kb/knowledge.json       军火库 78 条（tools/gen-kb-seed.py 生成）
-├── tools/                  build.js 构建 · test*.js 回归 · rls/ 数据库权限回归 · gen-kb-seed.py 军火库生成
-│                           kb-extra-1/2/3.json 人工补充条目
-├── deploy/                 Dockerfile · systemd unit · _headers · edgeone/
-├── docs/DEPLOY.md          上线手册（含验证清单与排错表）
-├── .github/workflows/      ci.yml 测试 · supabase-keepalive.yml 保活
-├── public/                 构建产物，已忽略
-└── data/                   server 本地快照，已忽略
+├── db/
+│   ├── supabase.sql        全部业务表、RLS 策略、函数（幂等）
+│   ├── keepalive.sql       保活表
+│   ├── new_table_template.sql  新增表的 RLS 模板
+│   └── migrations/         已有库的增量迁移（按日期命名，幂等）
+├── kb/knowledge.json       军火库数据
+├── tools/                  build.js 构建 · test*.js 回归测试 · rls/ 数据库权限测试
+│                           gen-kb-seed.py 与 kb-extra-*.json 军火库生成
+├── deploy/                 _headers · Dockerfile · systemd 单元 · edgeone/ 适配器
+├── docs/DEPLOY.md          部署手册
+└── .github/workflows/      ci.yml · supabase-keepalive.yml
 ```
 
-**没有框架、没有 CDN、没有 npm 运行时依赖**（唯一例外是 `deploy/edgeone/` 那个可选适配器）。`js/` 下 18 个文件，其中 17 个由 `index.html` 按顺序加载（`sync-core.js` 不在其中，见下），几处顺序是硬依赖并已在文件里注明原因（`playbook.js` 必须排在 `store.js` 前，`digest.js` 依赖 `quicklog.js` 的日期解析，`sparring.js` 依赖 `ai.js`，`team.js` 依赖 `auth.js`）。
+构建产物 `public/` 与自托管数据 `data/` 均不入库。几处脚本顺序是硬依赖并已在 `index.html` 注明：`playbook.js` 在 `store.js` 之前，`digest.js` 依赖 `quicklog.js`，`sparring.js` 依赖 `ai.js`，`team.js` 依赖 `auth.js`。
 
 ---
 
-## 9. 常见配置项
+## 9. 配置项
 
-### 9.1 应用内（设置页，存 localStorage，随同步走）
+### 9.1 应用内（设置页，存 localStorage）
 
 | 卡片 | 配置项 | 默认值 | 说明 |
 |---|---|---|---|
-| 个人与目标 | `owner` 姓名 | 张伟 | 顶栏副标题与团队看板的归属显示 |
-| | `monthlyTarget` 月度回款目标 | 300000 | 完成率、冲刺提示、预测基准 |
-| | `commissionRate` 提成比例 % | 3 | 周报与回款测算 |
-| AI 助手 | `ai.provider/base/model/key` | DeepSeek / `https://api.deepseek.com/v1` / `deepseek-chat` / 空 | Key 只存本机，直连服务商 |
-| | `tavily.key` | 空 | 选填，作战简报联网增强 |
-| 商机健康度 | `health.enabled / sensitivity / snoozeDays` | 开 / 1 / 7 天 | 灵敏度 UI 三档 0.7–1.5，代码支持 0.4–2.5 |
+| 个人与目标 | `owner` | 张伟 | 顶栏与团队看板显示名 |
+| | `monthlyTarget` | 300000 | 月度回款目标 |
+| | `commissionRate` | 3 | 提成比例 % |
+| AI 助手 | `ai.provider / base / model / key` | DeepSeek / `https://api.deepseek.com/v1` / `deepseek-chat` / 空 | Key 只存本机 |
+| | `tavily.key` | 空 | 作战简报联网增强 |
+| 商机健康度 | `health.enabled / sensitivity / snoozeDays` | 开 / 1 / 7 | |
 | 云同步 | `sync.mode` | `off` | `off` / `http` / `supabase` / `cloud` |
-| | `sync.endpoint / token` | 空 | 自建后端地址与令牌 |
-| | `sync.url / key / table / space` | 表 `sales_sync`，空间需自填 | 整包快照模式参数；`space` 至少 16 位，设置里可「随机生成」，多人靠不同 `space` 隔离 |
-| 账号与团队 | `cloud.url / key` | 出厂内置 | 换成你自己的 Supabase 项目；清空即回到内置默认 |
-| 跟进提醒 | `notify.enabled` | 开 | 关掉后只保留页面角标 |
-| 数据管理 | 导出 / 导入 / CSV / 数据码 / 示例 / 清空 | — | 配置与数据分开：清空、重置不会动设置 |
+| | `sync.endpoint / token` | 空 | 自建服务地址与令牌 |
+| | `sync.url / key / table / space` | 表 `sales_sync` | 空间名至少 16 位，可随机生成 |
+| 账号与团队 | `cloud.url / key` | 内置 | 清空即恢复内置默认 |
+| 跟进提醒 | `notify.enabled` | 开 | 关闭后只保留页面角标 |
 
 ### 9.2 服务端环境变量（`server/server.js`）
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `PORT` | 8080 | 监听端口，绑定 `0.0.0.0` |
-| `SYNC_TOKEN` | 空 | 设了就是专属模式（只认这一个令牌，须 ≥16 位且不能是模板占位符，否则拒绝启动）；不设是令牌即空间模式，≥8 位令牌各自开空间 |
-| `BACKUP_KEEP` | 10 | 每个空间保留的近期快照份数（最小间隔 `BACKUP_MIN_GAP`） |
-| `BACKUP_MIN_GAP` | 60000 | 两次近期快照的最小间隔（毫秒），防被刷 |
-| `MAX_SPACES` | 200 | 空间数上限，超出返回 503（公开部署的护栏） |
+| `PORT` | 8080 | 监听端口（`0.0.0.0`） |
+| `SYNC_TOKEN` | 空 | 设置后为专属模式；须至少 16 位且不能是模板占位符，否则拒绝启动 |
+| `BACKUP_KEEP` | 10 | 每个空间保留的近期快照份数 |
+| `BACKUP_MIN_GAP` | 60000 | 两次近期快照的最小间隔（毫秒） |
+| `MAX_SPACES` | 200 | 空间数上限，超出返回 503 |
+| `REQUIRE_DISK` | 空 | 设为 `1` 时数据目录不可写即拒绝启动（Docker 镜像默认开启） |
 
-单次 `PUT` 请求体上限 8 MB；无频率限制，只有上面的空间数护栏。EdgeOne 适配器另有 `BLOB_STORE`（默认 `sales-copilot`）、`SYNC_TOKEN`、`MAX_DEVICES`（默认 20，满了无损收拢最旧设备）、`MAX_SPACES`（默认 200）。
+EdgeOne 适配器的变量（`SYNC_TOKEN`、`BLOB_STORE`、`MAX_DEVICES`、`MAX_SPACES`）见其 README。
 
 ---
 
-## 10. 本地开发
+## 10. 开发与测试
 
 ```bash
-# 1. 全量语法检查
-git ls-files '*.js' | while read -r f; do node --check "$f"; done
+npm test                          # 核心测试 + 版本一致性
+npm run build                     # 生成 public/
 
-# 2. 回归测试（推送和 PR 时 GitHub Actions 的 ci.yml 会自动跑同一套）
-node tools/test.js            # AI 提示词 / 复盘 / 周报 / 军火库检索
-node tools/test-server.js     # 自建同步服务：畸形请求、UTF-8 分包、413、CSP、写盘失败
-node tools/test-xss.js        # 页面渲染不被记录内容注入
+# 全部回归（CI 在每次推送和 PR 时运行同一套）
+node tools/test.js            # AI 提示词、复盘、周报、军火库检索
+node tools/test-server.js     # 自建同步服务：畸形请求、UTF-8 分包、413、CSP、写盘失败、静态白名单
+node tools/test-xss.js        # 页面渲染转义
 node tools/test-sync.js       # 快照同步：空间名、请求头、凭据不上云
 node tools/test-cloud-sync.js # 账号同步：分页不漏行、推送游标
-node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出
-node tools/test-tz.js         # 日期在 UTC− / UTC+8 / UTC+14 下都按本地算
-node tools/test-quicklog.js   # 一句话录入：跟进方式、中文数字、意图词、客户匹配、月底/下周
-node tools/test-digest.js     # 会话情报：等客户反馈、字段标签、签字误报、日期不算数量
-node tools/test-health.js     # 健康度缓存：拉下旧记录、删除后及时重算
-node tools/test-minor.js      # Minor 批：墓碑、成交月份、令牌、Azure/超时、按商机算健康度等
-node tools/test-version.js    # 版本号：package.json、store.js、CHANGELOG 三处一致，LICENSE 存在
-node tools/test-sw.js         # 离线缓存（逐个预缓存、弱网 3 秒回退、知识库后台更新）与安卓通知
-node tools/test-edgeone.mjs   # EdgeOne 适配器：设备满了无损收拢、空间数上限
-(cd tools/rls && npm install && npm test)   # 数据库权限（RLS），PGlite 内存 Postgres
-
-# 3. 构建两个产物，并起本地服务
-node tools/build.js
-node tools/build.js --pages
-PORT=8080 node server/server.js
+node tools/test-storage.js    # 本地存储损坏 / 写满 / 多标签页、离线不登出、团队看板
+node tools/test-tz.js         # 日期在 UTC−、UTC+8、UTC+14 下都按本地计算
+node tools/test-quicklog.js   # 一句话录入
+node tools/test-digest.js     # 聊天记录提取
+node tools/test-health.js     # 健康度缓存
+node tools/test-minor.js      # 其余细节修复
+node tools/test-version.js    # 版本号三处一致、LICENSE 存在
+node tools/test-sw.js         # 离线缓存与安卓通知
+node tools/test-edgeone.mjs   # EdgeOne 适配器
+node deploy/edgeone/prepare.js --check       # EdgeOne 同步协议副本是否最新
+(cd tools/rls && npm install && npm test)    # 数据库权限（PGlite 内存 Postgres）
 ```
 
-改东西的落点：
+CI 另外构建并实测 Docker 镜像。
 
-| 要改的 | 改哪儿 |
+| 要改的 | 位置 |
 |---|---|
-| 加一个页面 | `views.js` 加渲染 → `ui.js` 加 action → `index.html` 加页签（构建会自动补进 sw 清单） |
-| 加一个数据字段 | `store.js` 的 `emptyState()` + `migrate()`（迁移按内容判断，不认版本号） |
-| 改话术种子 | `playbook.js` 顶部 `SEED`（改了才会被 `migrate` 补进老库） |
-| 改军火库 | 编辑 `tools/kb-extra-*.json` → `python tools/gen-kb-seed.py` 重新生成 `kb/knowledge.json`（输入还包括仓库外的旧 SQL 与可选聊天记录，缺的输入会静默跳过）→ 重新构建 |
-| 改 AI 服务商 | `ai.js` 顶部 `PROVIDERS`（`cors:false` 标记浏览器直连被拦的那几家） |
-| 改健康度 | `health.js`，四个信号彼此独立扣分，别合并 |
-| 改同步协议 | 服务端与 EdgeOne 共用一份协议层 `js/core/sync-core.js`（合并算法、令牌校验、空间映射）：改完到 `deploy/edgeone/` 跑 `node prepare.js` 同步适配器，`--check` 可在 CI 里校验一致性。浏览器侧的合并与四种模式在 `js/core/sync.js`，**两侧语义必须保持一致**，否则同一份数据在设备上和服务端上会算出不同结果 |
-| 改缓存 | `deploy/_headers` 或 `vercel.json`，**别手改 `sw.js` 的 FILES**（构建会重写） |
+| 加页面 | `views.js` 渲染 → `ui.js` 动作 → `index.html` 页签（构建会自动补进 SW 清单） |
+| 加数据字段 | `store.js` 的 `emptyState()` 与 `migrate()` |
+| 改话术种子 | `playbook.js` 的 `SEED` |
+| 改军火库 | 编辑 `tools/kb-extra-*.json` → `python tools/gen-kb-seed.py` → 重新构建 |
+| 改 AI 服务商 | `ai.js` 的 `PROVIDERS`（`cors:false` 标记不能直连的服务商） |
+| 改同步协议 | `js/core/sync-core.js` 改完运行 `node deploy/edgeone/prepare.js`；浏览器侧在 `js/core/sync.js`，两侧语义必须一致 |
+| 改数据库 | 同时改 `db/supabase.sql` 和新建 `db/migrations/<日期>-<名称>.sql`，并在 `tools/rls/` 补测试 |
+| 改缓存与安全头 | `deploy/_headers` 和 `vercel.json`；不要手改 `sw.js` 的预缓存清单 |
+| 新增测试文件 | 同步加入 `.github/workflows/ci.yml` 和本节 |
 
-提交前：上面的测试全绿（CI 会再跑一遍），改功能同步改这份 README 和 `docs/DEPLOY.md`。
+**发版**：同时修改 `package.json`、`js/core/store.js` 的 `VERSION`、`CHANGELOG.md`，改动前端文件时把 `sw.js` 的缓存名加一，合并后打 `vX.Y.Z` 标签并发布 Release。
 
 ---
 
-## 11. 常见问题 FAQ
+## 11. 常见问题
 
-| 现象 | 结论 |
+| 现象 | 处理 |
 |---|---|
-| 双击 `index.html` 白屏 | 正常，`file://` 加载不了多文件 JS。用 http 服务，或用单文件版 |
-| 单文件版没有军火库 | 是的，`file://` 拉不到 `kb/knowledge.json`。内置 48 条照常可用，离线够用 |
-| 同步胶囊一直灰着 | 多半是同步方式停在「自建 / 兼容服务器」，而 Pages / Vercel 上没有 `/api/sync`。切 Supabase |
-| 修复发上线了但刷新还是旧的 | SW 缓存。按 `docs/DEPLOY.md` 5.1 查 `_headers` 有没有生效 |
-| `王总` 认不出客户 | 已支持，姓加职务是第三轮匹配。同名会弹候选让你选 |
-| `他说下周三报价` 被设成我的下次跟进 | 已修。没有意图词就不设，宁可不设 |
-| 陪练显示「48 条其中 23 个适合对练」 | 正常。只有「客户说」「对方」开头的话术才是对练场景 |
-| 豆包 / 星火 一直失败 | 别试 Key，浏览器直连被 CORS 拦。换 DeepSeek / 智谱 / 通义 / 硅基 |
-| 清空数据后示例又长回来 | 已修（`onboarded` 标记跟同步走）。若复现，按 `docs/DEPLOY.md` 5.2 处理 |
-| 月初回款预测显示 0 | 已修。没填预计成交日的单按最低估并提醒补 |
-| 同一浏览器换账号看到上一个人的数据 | 设计如此。localStorage 按网站分不按账号分，退出登录不清业务数据。要验证隔离请用两个浏览器或无痕窗口 |
-| 通知不响 | 需 HTTPS 且要授予通知权限；被拒时退化为页面角标。只提醒逾期和 48 小时内到期 |
+| 双击 `index.html` 白屏 | `file://` 无法加载多个脚本。用本地 HTTP 服务，或用单文件版 |
+| 单文件版没有军火库 | `file://` 读不到 `kb/knowledge.json`，内置 48 条话术照常可用 |
+| 同步胶囊一直灰色 | 静态托管上没有 `/api/sync`，同步方式选了「自建 / 兼容服务器」。改选「Supabase 空间」或「Supabase 账号」 |
+| 上线后刷新仍是旧版 | Service Worker 缓存。关掉所有标签页重开；仍不行按 `docs/DEPLOY.md` 第 7.1 节检查 |
+| 豆包、讯飞星火等一直失败 | 这些接口不允许浏览器直连，换 DeepSeek、智谱、通义或硅基流动 |
+| 同一浏览器换账号仍看到上一个人的数据 | localStorage 按网站隔离而非按账号，退出登录不清业务数据。验证隔离请用两个浏览器或无痕窗口 |
+| 团队看板为空 | 只有 owner / admin 可见，且需已加入团队、成员已同步过数据 |
+| 通知不响 | 需要 HTTPS 和通知权限；只提醒逾期和 48 小时内到期；页面需开着 |
+| 输入邀请码提示失败 | 检查邀请码是否正确；短时间多次输错会被限流 15 分钟 |
+
+---
 
 ## 12. 版本与许可
 
-当前版本 **1.0.0**，变更见 [CHANGELOG.md](CHANGELOG.md)。发版时同时改 `package.json`、`js/core/store.js` 的 `VERSION` 和 CHANGELOG，并打 `vX.Y.Z` 标签。
-
-版权所有 © 2026 LeilaoMi，保留所有权利。仓库公开仅供查阅，未经书面许可不得复制、修改、分发或部署，详见 [LICENSE](LICENSE)。
-
----
-
-*README 反映现状，不写未来。改代码同步改 README，跑 `node tools/build.js --pages` + `node tools/test.js` 验证。*
+- 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)，变更记录见 [CHANGELOG.md](CHANGELOG.md)，发布见 [Releases](https://github.com/LeilaoMi/sales-copilot-Premium/releases)。
+- 版权所有 © 2026 LeilaoMi，保留所有权利。仓库公开仅供查阅，未经书面许可不得复制、修改、分发或部署，详见 [LICENSE](LICENSE)。
