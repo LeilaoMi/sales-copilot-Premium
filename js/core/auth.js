@@ -359,30 +359,30 @@ window.Auth = (function () {
     await loadProfile(true);
   }
 
-  /* 全队记录。只有管理员调得动——RLS 里 records 的管理员策略是只读的 select，
-   * 普通成员调这个只会拿到空数组（甚至 403），这不是 bug，是隔离在起作用。
-   * 拿到的东西不进本地库，只用于团队看板的一次性展示。 */
-  /* 2026-11-04 审计 M17：
-   *   ① 以前 select=data 把客户名、电话、备注整份拉到管理员浏览器，README 却说「不显示客户名字」。
-   *      看板只用得到下面这几个字段，就只拉这几个（PostgREST 的 data->>字段）。
-   *      注意这只是看板不拉；RLS 层面管理员仍有权读成员的完整记录，README 已如实写明。
-   *   ② 以前 limit=2000 一次拉完，记录多时看板静默少算。现在按主键排序逐页拉。 */
-  const TEAM_FIELDS = ['stage', 'amount', 'closedAt', 'nextFollowAt', 'at'];
+  /* 全队记录的统计字段，只给团队看板用，不进本地库。
+   * 2026-11-04 审计 M17：
+   *   以前直接 select records，RLS 给管理员开了同队成员整行的读权限，客户名、电话、备注都能拿到。
+   *   现在数据库里已没有这条读权限，只能调 team_record_facts()：它只返回下面这五个字段，
+   *   调用者不是本队 owner/admin 时返回空。按主键排序逐页拉，记录多也不会少算。 */
   const TEAM_PAGE = 1000;
   const TEAM_MAX_PAGES = 50;
   async function teamRecords() {
     if (!isAdmin() || !teamId()) return [];
-    const select = 'user_id,kind,id,' + TEAM_FIELDS.map(f => f + ':data->>' + f).join(',');
     const out = [];
     try {
       for (let page = 0; page < TEAM_MAX_PAGES; page++) {
-        const rows = await api('/rest/v1/records?team_id=eq.' + encodeURIComponent(teamId()) +
-          '&deleted=eq.false&select=' + select + '&order=user_id.asc,kind.asc,id.asc' +
-          '&limit=' + TEAM_PAGE + '&offset=' + (page * TEAM_PAGE), { method: 'GET' });
+        const rows = await api('/rest/v1/rpc/team_record_facts', {
+          method: 'POST',
+          body: JSON.stringify({ p_offset: page * TEAM_PAGE, p_limit: TEAM_PAGE })
+        });
         if (!Array.isArray(rows)) break;
         rows.forEach(r => {
           const data = {};
-          TEAM_FIELDS.forEach(f => { if (r[f] != null) data[f] = r[f]; });
+          if (r.stage != null) data.stage = r.stage;
+          if (r.amount != null) data.amount = r.amount;
+          if (r.closed_at != null) data.closedAt = r.closed_at;
+          if (r.next_follow_at != null) data.nextFollowAt = r.next_follow_at;
+          if (r.at != null) data.at = r.at;
           out.push({ user_id: r.user_id, kind: r.kind, id: r.id, deleted: false, data: data });
         });
         if (rows.length < TEAM_PAGE) break;
