@@ -4,6 +4,8 @@
  * ============================================================ */
 window.Store = (function () {
 
+  /* 应用版本号。发版时与 package.json、CHANGELOG.md 一起改，tools/test-version.js 校验三处一致 */
+  const VERSION = '1.0.0';
   const KEY = 'sales_copilot_v1';
 
   /* ---------- 常量字典 ---------- */
@@ -964,7 +966,7 @@ window.Store = (function () {
   }
 
   return {
-    KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
+    VERSION, KEY, STAGES, BOARD_STAGES, LEVELS, CUSTOMER_STATUS, FOLLOW_TYPES, INDUSTRIES, SOURCES, SYNC_KEYS,
     stageOf, levelOf, uid, fmtDate, fmtDateTime, todayStr, monthKey, monthLabel, monthFullLabel,
     addDays, daysBetween, diffDays, money, moneyFull, escapeHtml, isSafeId, safeRecord, sum, daysLeftInMonth,
     load, save, reset, seed, isPersistent, storageInfo, on, migrate, revision, generation, purge, purgeDemo, TOMB_TTL,

@@ -8,5 +8,6 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.15"
-  }
+  },
+  "license": "UNLICENSED"
 }

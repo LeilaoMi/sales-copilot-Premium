@@ -1423,7 +1423,8 @@ window.Views = (function () {
         <li><b>输单一定填原因</b>：三个月后回看，你会发现输单原因高度重复，那才是你真正的短板。</li>
         <li><b>话术库要自己养</b>：把客户说过最让你卡壳的那句话记下来，写出你的答案，别让它第二次难住你。</li>
       </ol>
-    </div>`;
+    </div>
+    <div class="small muted" style="text-align:center;margin:16px 0">销冠助手 v${S.VERSION} · © 2026 LeilaoMi 保留所有权利</div>`;
   }
 
   /* ============================================================
