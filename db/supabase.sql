@@ -332,17 +332,38 @@ create policy "records_self" on records
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
--- 管理员：同团队**只读**。
--- 刻意不给 update/delete——管理员能在看板上看全队进度就够了，
--- 改别人的客户和报价是另一回事，手一抖就是事故。
+-- 管理员：**不能直接读**成员的记录（审计 M17）。
+-- 以前这里有一条 records_admin_read：同团队管理员可 select 成员的整行，
+-- 客户名、电话、备注都在 data 里，看板虽然只显示统计，打开开发者工具就能翻全队客户。
+-- 现在看板只能走下面的 team_record_facts()：它只吐统计要用的五个字段，拿不到客户内容。
 drop policy if exists "records_admin_read" on records;
-create policy "records_admin_read" on records
-  for select to authenticated
-  using (
-    my_role() in ('owner', 'admin')
-    and team_id is not null
-    and team_id = my_team_id()
-  );
+
+-- 团队看板的唯一数据源：同团队、未删除记录的统计字段。
+-- security definer 绕过 RLS，所以权限判断全写在 where 里：调用者必须是本队 owner/admin。
+-- 不在这里做汇总：「本月」要按用户本地时区算（审计 M12），汇总留给前端 Team.aggregate。
+-- 分页：Supabase 默认单次最多返回 1000 行，前端按 p_offset 逐页拉。
+create or replace function team_record_facts(p_offset int default 0, p_limit int default 1000)
+returns table (user_id uuid, kind text, id text, stage text, amount text,
+               closed_at text, next_follow_at text, at text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select r.user_id, r.kind, r.id,
+         r.data->>'stage', r.data->>'amount', r.data->>'closedAt',
+         r.data->>'nextFollowAt', r.data->>'at'
+  from public.records r
+  where public.my_role() in ('owner', 'admin')
+    and r.team_id is not null
+    and r.team_id = public.my_team_id()
+    and not r.deleted
+  order by r.user_id, r.kind, r.id
+  offset greatest(coalesce(p_offset, 0), 0)
+  limit least(greatest(coalesce(p_limit, 1000), 1), 1000);
+$$;
+revoke all on function team_record_facts(int, int) from public, anon;
+grant execute on function team_record_facts(int, int) to authenticated;
 
 -- ---------- team_scripts ----------
 -- 同团队可读；作者本人或管理员可改可删
@@ -508,7 +529,7 @@ create trigger records_10_lww before update on records
 --   入队前的记录 team_id 为空，要等被改动才进团队看板。
 --   现在：写入时一律取作者当前所在团队，前端传什么都不算；
 --   成员换队 / 退队 / 被移出时，他的全部记录跟着改。
---   管理员只读策略 records_admin_read 不变（team_id = my_team_id()），
+--   管理员看板走 team_record_facts()（按 team_id = my_team_id() 过滤），
 --   但这一列从此可信。
 create or replace function records_set_team()
 returns trigger

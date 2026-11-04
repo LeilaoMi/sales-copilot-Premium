@@ -37,7 +37,7 @@ const up = (uid, id, ts, extra = {}) => as(uid,
    on conflict (user_id,kind,id) do update set data=excluded.data, team_id=excluded.team_id, deleted=excluded.deleted`,
   [uid, id, extra.team || null, JSON.stringify({ id, updatedAt: ts, name: extra.name || 'n' + ts })]);
 const row = async id => (await db.query(`select team_id, data, updated_at from records where id=$1`, [id])).rows[0];
-const ownerSees = async () => (await as(U.owner, `select id from records where kind='customers'`)).rows.map(r => r.id).sort().join(',');
+const ownerSees = async () => (await as(U.owner, `select id from team_record_facts(0, 1000) where kind='customers'`)).rows.map(r => r.id).sort().join(',');
 
 let fail = 0;
 const check = (n, c) => { console.log((c ? 'PASS ' : 'FAIL ') + n); if (!c) fail++; };
@@ -69,5 +69,18 @@ check('M5 同版本重复推送幂等、时间戳不变', +(await row('s1')).upd
 await as(U.solo, `insert into records(user_id,kind,id,data) select $1,'deals','d'||g, jsonb_build_object('updatedAt',g) from generate_series(1,500) g`, [U.solo]);
 const distinct = (await db.query(`select count(distinct updated_at) n from records where kind='deals'`)).rows[0].n;
 check('M6 一次插入 500 条不再共用同一时间戳（实得 ' + distinct + ' 个不同值；并列由前端 gte 翻页兜底）', Number(distinct) > 1);
+
+// M17：管理员不能直接读成员记录，只能通过 team_record_facts 拿统计字段
+await db.query(`update profiles set team_id=null, role='member' where id=$1`, [U.mem]);
+await as(U.mem, `select join_team($1)`, [codeA]);
+await as(U.mem, `insert into records(user_id,kind,id,data) values ($1,'customers','priv1',$2)`, [U.mem, JSON.stringify({ id: 'priv1', updatedAt: 1, name: '机密客户', phone: '13800000000', nextFollowAt: '2026-11-01' })]);
+const direct = (await as(U.owner, `select data from records where id='priv1'`)).rows;
+check('M17 owner 直接 select 成员记录拿不到', direct.length === 0);
+const facts = (await as(U.owner, `select * from team_record_facts(0, 1000) where id='priv1'`)).rows;
+check('M17 看板函数能拿到这条的统计字段', facts.length === 1 && facts[0].next_follow_at === '2026-11-01');
+check('M17 看板函数不返回客户名和电话', !JSON.stringify(facts).includes('机密') && !JSON.stringify(facts).includes('138'));
+check('M17 普通成员调看板函数拿不到别人的', (await as(U.mem, `select * from team_record_facts(0, 1000)`)).rows.length === 0);
+check('M17 别队 owner 调看板函数拿不到', (await as(U.other, `select * from team_record_facts(0, 1000) where id='priv1'`)).rows.length === 0);
+check('M17 单页最多 1000 行', (await as(U.owner, `select count(*)::int n from team_record_facts(0, 999999)`)).rows[0].n <= 1000);
 
 console.log(fail ? `${fail} FAILED` : 'ALL PASS'); process.exit(fail ? 1 : 0);

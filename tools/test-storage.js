@@ -190,16 +190,18 @@ const tick = () => new Promise(r => setTimeout(r, 5));
   localStorage.setItem('sc.auth.session', JSON.stringify({
     access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600e3, user_id: 'u1', email: 'a@b.c'
   }));
-  global.fetch = async (url) => {
+  global.fetch = async (url, opts) => {
     urls.push(url);
     let body = [];
     if (url.includes('/rest/v1/profiles')) body = [{ id: 'u1', team_id: 't1', role: 'owner', display_name: 'A' }];
-    else if (url.includes('/rest/v1/records')) {
-      const q = new URL(url).searchParams;
-      const limit = Number(q.get('limit') || 1e9), offset = Number(q.get('offset') || 0);
+    else if (url.includes('/rest/v1/rpc/team_record_facts')) {
+      /* 模拟数据库函数：只返回统计字段 */
+      const a = JSON.parse((opts && opts.body) || '{}');
       const all = Array.from({ length: TOTAL }, (_, i) => ({ user_id: 'u1', kind: 'customers', id: 'r' + String(i).padStart(5, '0'),
-        data: { name: '客户' + i, phone: '138' + i }, nextFollowAt: '2026-11-01', stage: null }));
-      body = all.slice(offset, offset + limit).map(r => q.get('select').includes('data,') || /select=[^&]*\bdata\b(?!->)/.test(url) ? r : { user_id: r.user_id, kind: r.kind, id: r.id, nextFollowAt: r.nextFollowAt });
+        stage: null, amount: null, closed_at: null, next_follow_at: '2026-11-01', at: null }));
+      body = all.slice(a.p_offset || 0, (a.p_offset || 0) + (a.p_limit || 1000));
+    } else if (url.includes('/rest/v1/records')) {
+      body = Array.from({ length: 5 }, (_, i) => ({ user_id: 'u1', kind: 'customers', id: 'x' + i, data: { name: '客户' + i, phone: '138' + i } }));
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body) };
   };
@@ -207,9 +209,8 @@ const tick = () => new Promise(r => setTimeout(r, 5));
   try { Auth.init && Auth.init(); } catch (e) {}
   await Auth.loadProfile(true);
   const rows = await Auth.teamRecords();
-  const recUrls = urls.filter(u => u.includes('/rest/v1/records'));
   check('拉全 ' + TOTAL + ' 条（实得 ' + rows.length + '）', rows.length === TOTAL);
-  check('请求里不再整份 select data', recUrls.length > 0 && recUrls.every(u => !/select=[^&]*\bdata\b(?!->)/.test(decodeURIComponent(u))));
+  check('M17 看板只走 rpc/team_record_facts，不再直接读 records 表', urls.some(u => u.includes('/rpc/team_record_facts')) && !urls.some(u => u.includes('/rest/v1/records')));
   check('拿到的记录不含客户名和电话', rows.length > 0 && !JSON.stringify(rows.slice(0, 5)).includes('138'));
   check('看板需要的字段还在', rows.length > 0 && rows[0].data && rows[0].data.nextFollowAt === '2026-11-01');
 
