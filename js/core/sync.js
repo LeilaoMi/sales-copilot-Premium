@@ -188,7 +188,7 @@ window.Sync = (function () {
     if (new Set(v).size < 8) return true;
     /* 由一小段重复拼成（1234567812345678、abcdabcdabcdabcd）也算弱 */
     for (let n = 1; n <= v.length / 2; n++) {
-      if (v.length % n === 0 && v.slice(0, n).repeat(v.length / n) === v) return true;
+      if (v.slice(0, n).repeat(Math.ceil(v.length / n)).slice(0, v.length) === v) return true;   // 末尾不完整的周期也算
     }
     return false;
   }

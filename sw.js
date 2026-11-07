@@ -88,7 +88,11 @@ function putCache(req, res) {
 }
 /* 页面导航忽略查询串：通知新开的 ./?view=customers 离线时也能命中预缓存的 ./，
  * 地址栏仍保留 view 给 ui.js 读（CodeRabbit PR #22） */
-const matchCache = req => caches.match(req, req.mode === 'navigate' ? { ignoreSearch: true } : undefined);
+const matchCache = async req => {
+  const exact = await caches.match(req);
+  if (exact || req.mode !== 'navigate') return exact;
+  return caches.match(req, { ignoreSearch: true });
+};
 async function networkFirst(req, event) {
   const net = fetch(req).then(res => { const w = putCache(req, res); if (event && event.waitUntil) event.waitUntil(w); return res; });
   net.catch(() => {});
