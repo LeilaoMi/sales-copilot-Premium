@@ -181,6 +181,17 @@ window.Sync = (function () {
     if (sp.length < MIN_SPACE) throw new Error('空间名至少 ' + MIN_SPACE + ' 位（它就是这份数据的密码），请在设置里点「随机生成」');
     return sp;
   }
+  /* 长度够但字符太单一（aaaaaaaaaaaaaaaa、1234123412341234）等于没设密码（CodeRabbit PR #21）。
+   * 只在设置页换新空间名时提醒，不在同步时拦：已经在用的空间和其他设备照常工作。 */
+  function weakSpace(sp) {
+    const v = String(sp || '');
+    if (new Set(v).size < 8) return true;
+    /* 由一小段重复拼成（1234567812345678、abcdabcdabcdabcd）也算弱 */
+    for (let n = 1; n <= v.length / 2; n++) {
+      if (v.slice(0, n).repeat(Math.ceil(v.length / n)).slice(0, v.length) === v) return true;   // 末尾不完整的周期也算
+    }
+    return false;
+  }
   function stripSecrets(data) {
     const st = data.settings;
     if (!st || typeof st !== 'object') return data;
@@ -527,7 +538,7 @@ window.Sync = (function () {
   }
 
   return {
-    merge, snapshot, pushPayload, applySnapshot, stripSecrets, MIN_SPACE,
+    merge, snapshot, pushPayload, applySnapshot, stripSecrets, MIN_SPACE, weakSpace,
     changedSince, applyRecords, applyCloudSettings, cloudSync,
     sync, start, stop, on, onLocalChange, cfg, saveCfg, getStatus
   };

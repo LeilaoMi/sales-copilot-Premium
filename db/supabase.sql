@@ -257,6 +257,11 @@ begin
   if old.role = 'owner' then
     raise exception '不能修改 owner 的角色' using errcode = '42501';
   end if;
+  -- admin 不能动另一个 admin 的角色：否则可先降为 member 再 admin_remove_member，
+  -- 绕过「只有 owner 能移出管理员」（CodeRabbit PR #21）
+  if op_role = 'admin' and old.role = 'admin' then
+    raise exception '只有 owner 能调整管理员' using errcode = '42501';
+  end if;
   if new.role = 'owner' then
     raise exception '不能直接授予 owner' using errcode = '42501';
   end if;

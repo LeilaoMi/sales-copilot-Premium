@@ -214,6 +214,18 @@ const tick = () => new Promise(r => setTimeout(r, 5));
   check('拿到的记录不含客户名和电话', rows.length > 0 && !JSON.stringify(rows.slice(0, 5)).includes('138'));
   check('看板需要的字段还在', rows.length > 0 && rows[0].data && rows[0].data.nextFollowAt === '2026-11-01');
 
+  /* CodeRabbit PR #21：第 2 页失败时不能把第 1 页当全量返回 */
+  const okFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    const a = JSON.parse((opts && opts.body) || '{}');
+    if (url.includes('/rpc/team_record_facts') && (a.p_offset || 0) >= 1000) return { ok: false, status: 503, text: async () => '{"message":"down"}' };
+    return okFetch(url, opts);
+  };
+  let partialErr = null, partialRows = null;
+  try { partialRows = await Auth.teamRecords(); } catch (e) { partialErr = e; }
+  check('中途失败时报错而不是返回半截（实得 ' + (partialErr ? '报错' : (partialRows || []).length + ' 条') + '）', !!partialErr);
+  global.fetch = okFetch;
+
   console.log('\n' + (fail === 0 ? 'ALL STORAGE TESTS PASSED' : 'FAILURES: ' + fail));
   process.exit(fail === 0 ? 0 : 1);
 })().catch(e => { console.error('FATAL:', e); process.exit(1); });

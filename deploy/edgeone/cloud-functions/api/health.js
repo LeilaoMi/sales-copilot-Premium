@@ -44,7 +44,9 @@ export async function onRequest(context) {
   if (token && CORE.authOk({ headers: req.headers, url: req.url }, FIXED_TOKEN)) {
     try {
       const space = CORE.spaceKey(token);
-        const { blobs } = await st.list({ prefix: 'sync/' + space + '/', consistency: 'strong' });
+      const { getStore } = await import('@edgeone/pages-blob');
+      const st = getStore({ name: STORE_NAME, consistency: 'strong' });
+      const { blobs } = await st.list({ prefix: 'sync/' + space + '/', consistency: 'strong' });
       out.space = space;
       out.devices = blobs.length;
     } catch (e) {

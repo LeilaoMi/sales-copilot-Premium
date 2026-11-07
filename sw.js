@@ -26,7 +26,7 @@
  */
 /* v4（2026-11-04 审计 M22）：知识库和 manifest 改成「先用缓存、后台更新」，
  * 旧 v3 里那份永不更新的 knowledge.json 借这次换版本清掉。 */
-const CACHE = 'sales-copilot-v7';
+const CACHE = 'sales-copilot-v8';
 const NET_TIMEOUT = 3000;   // 弱网（有信号没数据）时最多等 3 秒就先用缓存
 
 /* 预缓存清单：只在首次安装时用，目的是让「第一次离线打开」也有完整页面。
@@ -86,6 +86,13 @@ function putCache(req, res) {
   }
   return Promise.resolve();
 }
+/* 页面导航忽略查询串：通知新开的 ./?view=customers 离线时也能命中预缓存的 ./，
+ * 地址栏仍保留 view 给 ui.js 读（CodeRabbit PR #22） */
+const matchCache = async req => {
+  const exact = await caches.match(req);
+  if (exact || req.mode !== 'navigate') return exact;
+  return caches.match(req, { ignoreSearch: true });
+};
 async function networkFirst(req, event) {
   const net = fetch(req).then(res => { const w = putCache(req, res); if (event && event.waitUntil) event.waitUntil(w); return res; });
   net.catch(() => {});
@@ -94,12 +101,12 @@ async function networkFirst(req, event) {
   try {
     const first = await Promise.race([net, slow]);
     if (first !== 'timeout') { clearTimeout(timer); return first; }
-    const cached = await caches.match(req);
+    const cached = await matchCache(req);
     if (cached) return cached;
     return await net;                       // 没缓存可用，只能继续等网络
   } catch (e) {
     clearTimeout(timer);
-    const cached = await caches.match(req);
+    const cached = await matchCache(req);
     if (cached) return cached;
     return new Response('离线且无缓存', { status: 503, statusText: 'offline' });
   }
@@ -165,6 +172,6 @@ self.addEventListener('notificationclick', e => {
       if (view) c.postMessage({ type: 'sc-go', view: view });
       return c.focus();
     }
-    return clients.openWindow ? clients.openWindow('./') : null;
+    return clients.openWindow ? clients.openWindow(view ? './?view=' + encodeURIComponent(view) : './') : null;
   }));
 });

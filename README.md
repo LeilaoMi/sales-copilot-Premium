@@ -7,7 +7,7 @@
 > 跑在浏览器里的个人销售作战台：本地优先、断网可用、可安装到主屏幕，按需开启 Supabase 云同步和团队看板。
 
 - 线上地址：<https://sales.leilaomi.cc.cd>（Cloudflare Pages，`main` 分支合并后自动部署）
-- 当前版本：**1.0.1**，变更见 [CHANGELOG.md](CHANGELOG.md)
+- 当前版本：**1.0.2**，变更见 [CHANGELOG.md](CHANGELOG.md)
 - 技术栈：原生 HTML / CSS / JavaScript，无框架、无 CDN、无运行时 npm 依赖
 - 规模：`js/` 下 18 个模块（17 个由 `index.html` 按顺序加载），另有零依赖 Node 同步服务；代码约 1.56 万行
 
@@ -244,6 +244,7 @@ Supabase 地址与 publishable key 内置在 `js/core/auth.js` 的 `DEFAULT_CLOU
 
 - 成员只能读写自己的记录；记录的 `team_id` 由数据库按当前所在团队决定，退队后自动清空。
 - 用户不能修改自己的角色和所属团队（列级守卫触发器）。
+- owner 和管理员可以调整本队成员；管理员不能修改 owner 或另一位管理员的角色，也不能移出他们。
 - 管理员**不能直接读取**成员记录，团队看板只能通过 `team_record_facts()` 拿到阶段、金额、成交日、下次跟进日、跟进时间五个字段；看不到客户名、电话、备注，也看不到成员的 API Key。
 - `team_scripts`（团队共享话术）表已建好，前端尚未接入，话术库目前仍是个人的。
 
@@ -318,7 +319,7 @@ Supabase 地址与 publishable key 内置在 `js/core/auth.js` 的 `DEFAULT_CLOU
 sales-copilot-Premium/
 ├── index.html              唯一页面，脚本按依赖顺序加载
 ├── manifest.json           PWA 清单
-├── sw.js                   Service Worker（缓存 sales-copilot-v7，预缓存清单由构建重写）
+├── sw.js                   Service Worker（缓存 sales-copilot-v8，预缓存清单由构建重写）
 ├── package.json            版本号与 npm 脚本（无依赖）
 ├── CHANGELOG.md · LICENSE
 ├── vercel.json             Vercel 安全头与缓存配置

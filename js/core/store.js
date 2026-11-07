@@ -5,7 +5,7 @@
 window.Store = (function () {
 
   /* 应用版本号。发版时与 package.json、CHANGELOG.md 一起改，tools/test-version.js 校验三处一致 */
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const KEY = 'sales_copilot_v1';
 
   /* ---------- 常量字典 ---------- */
@@ -63,10 +63,12 @@ window.Store = (function () {
   const monthLabel = v => { const d = toDate(v) || new Date(); return `${d.getMonth() + 1}月`; };
   const monthFullLabel = v => { const d = toDate(v) || new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
   const addDays = (v, n) => { const d = toDate(v) || new Date(); d.setDate(d.getDate() + n); return fmtDate(d); };
-  const daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / 86400000);
+  /* 任一端解析不了就返回 null，不要让 1970 年或 NaN 混进统计（CodeRabbit PR #21） */
+  const daysBetween = (a, b) => { const x = toDate(a), y = toDate(b); return x && y ? Math.round((y - x) / 86400000) : null; };
   const diffDays = v => { // 相对今天相差天数：负=已过期
-    if (!v) return null;
-    const d = toDate(v); d.setHours(0, 0, 0, 0);
+    const d = toDate(v);
+    if (!d) return null;                     // 空值或格式不对（导入、旧数据、其他设备）都不算
+    d.setHours(0, 0, 0, 0);
     const t = new Date(); t.setHours(0, 0, 0, 0);
     return Math.round((d - t) / 86400000);
   };
@@ -596,7 +598,7 @@ window.Store = (function () {
     // 赢单相关
     const winRate = closed ? wonDeals.length / closed : 0;
     const avgDeal = wonDeals.length ? sum(wonDeals, d => d.amount) / wonDeals.length : 0;
-    const cycles = wonDeals.filter(d => d.closedAt && d.createdAt).map(d => daysBetween(d.createdAt, d.closedAt));
+    const cycles = wonDeals.map(d => daysBetween(d.createdAt, d.closedAt)).filter(n => n !== null && n >= 0);
     const avgCycle = cycles.length ? Math.round(sum(cycles) / cycles.length) : 0;
     const weighted = sum(openDeals, d => (Number(d.amount) || 0) * stageOf(d.stage).prob / 100);
     const openAmount = sum(openDeals, d => d.amount);
@@ -675,7 +677,7 @@ window.Store = (function () {
       verdict = 'unlikely';
       const short = gapAmount - forecast;
       advice = `缺口 ${moneyFull(gapAmount)}，现有弹药按赢率折算只够 ${moneyFull(forecast)}，差 ${moneyFull(short)}。`
-        + `本月剩 ${left} 天，硬冲大单来不及了。两条路：① 找 ${Math.max(1, needDeals)} 个金额小、决策快的单子补量；`
+        + `本月剩 ${left + 1} 天（含今天），硬冲大单来不及了。两条路：① 找 ${Math.max(1, needDeals)} 个金额小、决策快的单子补量；`
         + `② 提前跟老板对齐预期，把目标挪到下月，别月底被动。`;
     }
 
@@ -758,8 +760,32 @@ window.Store = (function () {
     state = Object.assign(emptyState(), obj);
     state.settings = Object.assign(emptyState().settings, obj.settings || {});
     SYNC_KEYS.forEach(k => { if (!Array.isArray(state[k])) state[k] = []; });
-    const bad = SYNC_KEYS.reduce((n, k) => n + state[k].filter(r => !safeRecord(r)).length, 0);
-    if (bad) { state = prev; throw new Error('文件里有 ' + bad + ' 条记录的 id 含非法字符，已取消导入'); }
+    /* id 不合规的旧记录（旧版 insert 允许调用方指定 id）不再整份拒收，而是换成新 id，
+     * 并同步改写 customerId / dealId 引用，保住客户—商机—跟进的关联（CodeRabbit PR #21）。
+     * 不是对象的条目直接丢弃。云端拉取仍然跳过不合规的记录：那里的数据不一定是本人的。 */
+    let remapped = 0;
+    const idMap = { customers: new Map(), deals: new Map() };
+    SYNC_KEYS.forEach(k => { state[k] = state[k].filter(r => r && typeof r === 'object' && !Array.isArray(r)); });
+    const used = new Set();
+    SYNC_KEYS.forEach(k => state[k].forEach(r => { if (isSafeId(r.id)) used.add(r.id); }));
+    SYNC_KEYS.forEach(k => {
+      state[k].forEach(r => {
+        if (isSafeId(r.id)) return;
+        let nid;
+        do { nid = 'm' + uid(); } while (used.has(nid));   // 同一毫秒内 uid 也可能撞（CodeRabbit PR #22）
+        used.add(nid);
+        if (idMap[k] && r.id != null) idMap[k].set(String(r.id), nid);
+        r.id = nid; remapped++;
+      });
+    });
+    const fixRef = (r, f, k) => {
+      if (safeRef(r[f])) return;
+      r[f] = idMap[k].get(String(r[f])) || '';
+    };
+    SYNC_KEYS.forEach(k => state[k].forEach(r => {
+      if (idMap.customers.size || !safeRef(r.customerId)) fixRef(r, 'customerId', 'customers');
+      if (idMap.deals.size || !safeRef(r.dealId)) fixRef(r, 'dealId', 'deals');
+    }));
 
     state.deviceId = prev.deviceId || state.deviceId;
     const ps = prev.settings || {}, ns = state.settings;
@@ -776,6 +802,7 @@ window.Store = (function () {
     saveBlocked = false;      // 用户主动导入 = 明确同意覆盖（包括没能另存的损坏原文）
     migrate();
     save();
+    return { remapped: remapped };
   }
   function customersToCSV() {
     const head = ['客户名称', '联系人', '职务', '电话', '微信', '分级', '行业', '来源', '状态', '下次跟进', '商机总额', '备注'];

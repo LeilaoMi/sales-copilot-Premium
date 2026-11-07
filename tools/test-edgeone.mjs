@@ -21,6 +21,7 @@ const mod = path.join(tmp, 'node_modules/@edgeone/pages-blob');
 fs.mkdirSync(mod, { recursive: true });
 fs.writeFileSync(path.join(mod, 'package.json'), '{"name":"@edgeone/pages-blob","type":"module","main":"index.js"}');
 fs.writeFileSync(path.join(mod, 'index.js'), `
+export async function listStores() { return { stores: [{ name: 'sales-copilot' }] }; }
 export function getStore() {
   const M = globalThis.__BLOBS;   // 每次取当前的，测试之间会换新 Map
   return {
@@ -89,6 +90,17 @@ try {
   check('第三个新空间被挡（实得 ' + c.status + '）', c.status === 503);
   const a2 = await on(req('PUT', 'space-token-1-xxxxxx', 'd2', snap('a2', 2)));
   check('已有空间加新设备不受空间上限影响（实得 ' + a2.status + '）', a2.status === 200);
+
+  /* ---------- 健康检查带令牌时报设备数（CodeRabbit PR #21：st 未定义） ---------- */
+  globalThis.__BLOBS = new Map();
+  on = await load({ SYNC_TOKEN: '', MAX_DEVICES: '20', MAX_SPACES: '50' });
+  await on(req('PUT', T, 'dev1', snap('h1', 1)));
+  await on(req('PUT', T, 'dev2', snap('h2', 2)));
+  const hu = pathToFileURL(path.join(tmp, 'cloud-functions/api/health.js')).href + '?v=' + Math.random();
+  const health = (await import(hu)).onRequest;
+  const hr = await health({ request: new Request('https://eo.test/api/health', { headers: { 'X-Sync-Token': T } }) });
+  const hj = await hr.json();
+  check('health 带令牌返回设备数（devices=' + hj.devices + (hj.spaceError ? '，错误 ' + hj.spaceError : '') + '）', hj.devices === 2 && !hj.spaceError);
 
   /* ---------- 依赖版本 ---------- */
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'deploy/edgeone/package.json'), 'utf8'));

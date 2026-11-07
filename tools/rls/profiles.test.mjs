@@ -20,12 +20,13 @@ for (const f of SQL_FILES) await db.exec(fs.readFileSync(f, 'utf8'));
 await db.exec(`grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to anon, authenticated;
 grant execute on all functions in schema public to anon, authenticated;`);
-const U={owner:'00000000-0000-0000-0000-000000000001', mem:'00000000-0000-0000-0000-000000000002', adm:'00000000-0000-0000-0000-000000000003', out:'00000000-0000-0000-0000-000000000004', other:'00000000-0000-0000-0000-000000000005'};
+const U={owner:'00000000-0000-0000-0000-000000000001', mem:'00000000-0000-0000-0000-000000000002', adm:'00000000-0000-0000-0000-000000000003', out:'00000000-0000-0000-0000-000000000004', other:'00000000-0000-0000-0000-000000000005', adm2:'00000000-0000-0000-0000-000000000006'};
 for (const [k,id] of Object.entries(U)) await db.query(`insert into auth.users(id,email) values ($1,$2)`,[id,k+'@x.com']);
 const tA=(await db.query(`select team_id from profiles where id=$1`,[U.owner])).rows[0].team_id;
 // 把 adm 设为 A 队 admin、mem 为 A 队 member（以属主身份准备数据）
 await db.query(`update profiles set team_id=$1, role='admin' where id=$2`,[tA,U.adm]);
 await db.query(`update profiles set team_id=$1 where id=$2`,[tA,U.mem]);
+await db.query(`update profiles set team_id=$1, role='admin' where id=$2`,[tA,U.adm2]);
 // other 建 B 队
 const tB=(await db.query(`insert into teams(name,owner_id,invite_code) values('B',$1,'BBBBBBBB') returning id`,[U.other])).rows[0].id;
 await db.query(`update profiles set team_id=$1, role='owner' where id=$2`,[tB,U.other]);
@@ -42,6 +43,10 @@ const cases = [
  ['admin 授 owner 给成员', U.adm, `update profiles set role='owner' where id=$1`, [U.mem], 'ERR'],
  ['admin 把成员挪到 B 队', U.adm, `update profiles set team_id=$1 where id=$2`, [tB,U.mem], 'ERR'],
  ['admin 降级 owner', U.adm, `update profiles set role='member' where id=$1`, [U.owner], 'ERR'],
+ // CodeRabbit PR #21：admin 不能先降级另一个 admin 再移出
+ ['admin 降级另一个 admin', U.adm, `update profiles set role='member' where id=$1`, [U.adm2], 'ERR'],
+ ['admin 直接移出另一个 admin', U.adm, `select admin_remove_member($1)`, [U.adm2], 'ERR'],
+ ['owner 降级 admin2', U.owner, `update profiles set role='member' where id=$1`, [U.adm2], 'OK rows=1'],
  ['owner 把成员升 admin', U.owner, `update profiles set role='admin' where id=$1`, [U.mem], 'OK rows=1'],
  ['owner 把 admin 降为 member', U.owner, `update profiles set role='member' where id=$1`, [U.mem], 'OK rows=1'],
  ['admin 移出成员（admin_remove_member）', U.adm, `select admin_remove_member($1)`, [U.mem], 'OK'],

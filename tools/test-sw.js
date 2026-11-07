@@ -127,6 +127,18 @@ function fireFetch(env, url) {
     check('check 返回提醒条数 1（实得 ' + n + '）', n === 1);
   }
 
+  section('CodeRabbit PR #21：SW 弹不出且页面通知也失败时不记「已提醒」');
+  {
+    localStorage.removeItem('sc.notify.sent'); localStorage.removeItem('sc.notify.last');
+    Object.defineProperty(global, 'navigator', { configurable: true, value: { onLine: true, serviceWorker: {
+      controller: {}, ready: Promise.resolve({ showNotification: async () => { throw new Error('denied'); } }), addEventListener() {}
+    } } });
+    Store.state.customers = [{ id: 'c2', name: '乙公司', nextFollowAt: Store.todayStr(), updatedAt: 2 }];
+    Notify.check(false);
+    await sleep(20);
+    check('已提醒记录被撤销（下次还会再提醒）', localStorage.getItem('sc.notify.last') === null && localStorage.getItem('sc.notify.sent') === null);
+  }
+
   section('M14 sw.js 处理通知点击');
   {
     const f = async () => resp('');
@@ -139,6 +151,12 @@ function fireFetch(env, url) {
       await w;
       check('关掉通知、切到已有窗口', closed && focused);
       check('通知页面跳到客户库', !!msg && msg.type === 'sc-go' && msg.view === 'customers');
+      let opened = null, w2;
+      env.clients.matchAll = async () => [];
+      env.clients.openWindow = async u => { opened = u; };
+      env.listeners.notificationclick({ notification: { data: { view: 'customers' }, close() {} }, waitUntil: x => { w2 = x; } });
+      await w2;
+      check('没有窗口时新开的地址带 view（实得 ' + opened + '）', opened === './?view=customers');
     }
   }
 

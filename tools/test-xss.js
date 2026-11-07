@@ -78,13 +78,20 @@ check('safeRecord 拒绝坏的 customerId', !Store.safeRecord({ id: 'a1', custom
 check('safeRecord 允许空关联', Store.safeRecord({ id: 'a1', customerId: '' }));
 
 Store.load(); Store.seed(); Store.save();
-const before = JSON.stringify(Store.state.customers);
 const evil = JSON.parse(Store.exportJSON());
 evil.customers.push({ id: ATTR, name: 'evil', updatedAt: Date.now() });
-let threw = false;
-try { Store.importJSON(JSON.stringify(evil)); } catch (e) { threw = /非法/.test(e.message); }
-check('导入含坏 id 的文件会被拒绝', threw);
-check('拒绝后本地数据保持原样', JSON.stringify(Store.state.customers) === before);
+evil.deals.push({ id: 'd x', customerId: ATTR, title: '旧单', stage: 'lead', updatedAt: Date.now() });
+evil.followups.push({ id: 'f/1', customerId: ATTR, dealId: 'd x', content: '旧跟进', updatedAt: Date.now() });
+let res = null, err = null;
+try { res = Store.importJSON(JSON.stringify(evil)); } catch (e) { err = e; }
+check('含坏 id 的旧备份可以导入（换新 id，不整份拒收）', !err && res && res.remapped === 3);
+const all = ['customers', 'deals', 'followups'].flatMap(k => Store.state[k]);
+check('导入后所有 id 和关联都合规', all.every(Store.safeRecord));
+check('坏 id 原文不再出现在本地', !JSON.stringify(Store.state).includes(ATTR));
+const ec = Store.state.customers.find(c => c.name === 'evil');
+const ed = Store.state.deals.find(d => d.title === '旧单');
+const ef = Store.state.followups.find(f => f.content === '旧跟进');
+check('客户—商机—跟进的关联保留', !!ec && !!ed && !!ef && ed.customerId === ec.id && ef.customerId === ec.id && ef.dealId === ed.id);
 const good = JSON.parse(Store.exportJSON());
 let ok = true;
 try { Store.importJSON(JSON.stringify(good)); } catch (e) { ok = false; }

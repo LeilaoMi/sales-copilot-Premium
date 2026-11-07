@@ -1,6 +1,6 @@
 # 销冠助手 · 部署手册
 
-适用版本 1.0.1。照步骤操作即可，每处关键设置都写了原因。
+适用版本 1.0.2。照步骤操作即可，每处关键设置都写了原因。
 
 > 本软件保留所有权利，以下内容供作者及获授权者部署使用，见仓库根目录 `LICENSE`。
 
@@ -80,6 +80,7 @@ anon key 可以公开，权限由数据库的 RLS 策略控制。**service_role 
 | `2026-11-04-records-guards.sql` | 记录级后写覆盖、`team_id` 由数据库决定、逐行时间戳 |
 | `2026-11-04-minor-hardening.sql` | 显式授权、邀请码限流、保活表策略、注册并发 |
 | `2026-11-04-team-stats.sql` | 团队看板改用 `team_record_facts()`，管理员不能直接读成员记录 |
+| `2026-11-07-admin-demote-guard.sql` | 管理员不能修改另一位管理员的角色（只有 owner 能调整管理员） |
 
 涉及前端行为的迁移，先部署新前端再执行。
 
@@ -247,7 +248,7 @@ docker run -d --name sales-copilot -p 8080:8080 \
 
 ### 7.1 Service Worker 已是新版本
 
-1. Chrome 打开线上地址，F12 → **Application → Cache Storage**，缓存名应为 **`sales-copilot-v7`**（随版本递增，以仓库 `sw.js` 的 `CACHE` 为准）。
+1. Chrome 打开线上地址，F12 → **Application → Cache Storage**，缓存名应为 **`sales-copilot-v8`**（随版本递增，以仓库 `sw.js` 的 `CACHE` 为准）。
 2. **Network** 中刷新（不勾 Disable cache），查看 `sw.js` 的响应头应有 `cache-control: no-cache, no-store, must-revalidate`。
 
 不符合时：
