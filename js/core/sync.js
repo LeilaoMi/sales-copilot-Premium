@@ -184,7 +184,13 @@ window.Sync = (function () {
   /* 长度够但字符太单一（aaaaaaaaaaaaaaaa、1234123412341234）等于没设密码（CodeRabbit PR #21）。
    * 只在设置页换新空间名时提醒，不在同步时拦：已经在用的空间和其他设备照常工作。 */
   function weakSpace(sp) {
-    return new Set(String(sp || '')).size < 8;
+    const v = String(sp || '');
+    if (new Set(v).size < 8) return true;
+    /* 由一小段重复拼成（1234567812345678、abcdabcdabcdabcd）也算弱 */
+    for (let n = 1; n <= v.length / 2; n++) {
+      if (v.length % n === 0 && v.slice(0, n).repeat(v.length / n) === v) return true;
+    }
+    return false;
   }
   function stripSecrets(data) {
     const st = data.settings;

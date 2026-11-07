@@ -1451,7 +1451,7 @@
         if (!patch.url || !patch.key) { toast('请填写 Project URL 和 anon key', 'err'); return; }
         if (patch.space.length < Sync.MIN_SPACE) { toast('空间名至少 ' + Sync.MIN_SPACE + ' 位，可点「随机生成」', 'err'); return; }
         if (patch.space !== (Sync.cfg().space || '') && Sync.weakSpace && Sync.weakSpace(patch.space)
-          && !window.confirm('这个空间名字符太单一，别人可能猜到并读写你的数据。建议点「随机生成」。\n\n其他设备已经在用这个空间名的话，点「确定」继续。')) return;
+          && !window.confirm('这个空间名太简单（字符单一或重复），别人可能猜到并读写你的数据。建议点「随机生成」。\n\n其他设备已经在用这个空间名的话，点「确定」继续。')) return;
       }
       Sync.saveCfg(patch);
       if (mode === 'off') {

@@ -81,6 +81,12 @@ global.fetch = async (url, opt) => {
   check('本机同步配置保留', Store.state.settings.sync && Store.state.settings.sync.space === SPACE);
 
   Sync.stop && Sync.stop();
-  console.log('\n' + (fail === 0 ? 'ALL SYNC TESTS PASSED' : 'FAILURES: ' + fail));
+  /* CodeRabbit PR #21/#22：弱空间名 */
+if (typeof Sync !== 'undefined' && Sync.weakSpace) {
+  check('aaaaaaaaaaaaaaaa 判为弱', Sync.weakSpace('aaaaaaaaaaaaaaaa'));
+  check('1234567812345678 判为弱（重复序列）', Sync.weakSpace('1234567812345678'));
+  check('随机生成的空间名不弱', !Sync.weakSpace('sp-3f9a1c7e5b2d8a4f6e0c9b1d'));
+}
+console.log('\n' + (fail === 0 ? 'ALL SYNC TESTS PASSED' : 'FAILURES: ' + fail));
   process.exit(fail === 0 ? 0 : 1);
 })().catch(e => { console.error('FATAL:', e); process.exit(1); });

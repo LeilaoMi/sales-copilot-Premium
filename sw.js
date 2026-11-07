@@ -86,6 +86,9 @@ function putCache(req, res) {
   }
   return Promise.resolve();
 }
+/* 页面导航忽略查询串：通知新开的 ./?view=customers 离线时也能命中预缓存的 ./，
+ * 地址栏仍保留 view 给 ui.js 读（CodeRabbit PR #22） */
+const matchCache = req => caches.match(req, req.mode === 'navigate' ? { ignoreSearch: true } : undefined);
 async function networkFirst(req, event) {
   const net = fetch(req).then(res => { const w = putCache(req, res); if (event && event.waitUntil) event.waitUntil(w); return res; });
   net.catch(() => {});
@@ -94,12 +97,12 @@ async function networkFirst(req, event) {
   try {
     const first = await Promise.race([net, slow]);
     if (first !== 'timeout') { clearTimeout(timer); return first; }
-    const cached = await caches.match(req);
+    const cached = await matchCache(req);
     if (cached) return cached;
     return await net;                       // 没缓存可用，只能继续等网络
   } catch (e) {
     clearTimeout(timer);
-    const cached = await caches.match(req);
+    const cached = await matchCache(req);
     if (cached) return cached;
     return new Response('离线且无缓存', { status: 503, statusText: 'offline' });
   }

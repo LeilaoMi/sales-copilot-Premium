@@ -765,11 +765,15 @@ window.Store = (function () {
      * 不是对象的条目直接丢弃。云端拉取仍然跳过不合规的记录：那里的数据不一定是本人的。 */
     let remapped = 0;
     const idMap = { customers: new Map(), deals: new Map() };
+    SYNC_KEYS.forEach(k => { state[k] = state[k].filter(r => r && typeof r === 'object' && !Array.isArray(r)); });
+    const used = new Set();
+    SYNC_KEYS.forEach(k => state[k].forEach(r => { if (isSafeId(r.id)) used.add(r.id); }));
     SYNC_KEYS.forEach(k => {
-      state[k] = state[k].filter(r => r && typeof r === 'object' && !Array.isArray(r));
       state[k].forEach(r => {
         if (isSafeId(r.id)) return;
-        const nid = 'm' + uid();
+        let nid;
+        do { nid = 'm' + uid(); } while (used.has(nid));   // 同一毫秒内 uid 也可能撞（CodeRabbit PR #22）
+        used.add(nid);
         if (idMap[k] && r.id != null) idMap[k].set(String(r.id), nid);
         r.id = nid; remapped++;
       });
