@@ -369,26 +369,26 @@ window.Auth = (function () {
   async function teamRecords() {
     if (!isAdmin() || !teamId()) return [];
     const out = [];
-    try {
-      for (let page = 0; page < TEAM_MAX_PAGES; page++) {
-        const rows = await api('/rest/v1/rpc/team_record_facts', {
-          method: 'POST',
-          body: JSON.stringify({ p_offset: page * TEAM_PAGE, p_limit: TEAM_PAGE })
-        });
-        if (!Array.isArray(rows)) break;
-        rows.forEach(r => {
-          const data = {};
-          if (r.stage != null) data.stage = r.stage;
-          if (r.amount != null) data.amount = r.amount;
-          if (r.closed_at != null) data.closedAt = r.closed_at;
-          if (r.next_follow_at != null) data.nextFollowAt = r.next_follow_at;
-          if (r.at != null) data.at = r.at;
-          out.push({ user_id: r.user_id, kind: r.kind, id: r.id, deleted: false, data: data });
-        });
-        if (rows.length < TEAM_PAGE) break;
-      }
-      return out;
-    } catch (e) { return out.length ? out : []; }
+    /* 中途失败或超出页数上限都直接报错，不把半截数据当全量（CodeRabbit PR #21）：
+     * 看板少算比看板报错更糟，用户会拿偏低的数字去做判断。team.js 会显示「读取失败」。 */
+    for (let page = 0; page < TEAM_MAX_PAGES; page++) {
+      const rows = await api('/rest/v1/rpc/team_record_facts', {
+        method: 'POST',
+        body: JSON.stringify({ p_offset: page * TEAM_PAGE, p_limit: TEAM_PAGE })
+      });
+      if (!Array.isArray(rows)) throw new Error('团队数据格式不对');
+      rows.forEach(r => {
+        const data = {};
+        if (r.stage != null) data.stage = r.stage;
+        if (r.amount != null) data.amount = r.amount;
+        if (r.closed_at != null) data.closedAt = r.closed_at;
+        if (r.next_follow_at != null) data.nextFollowAt = r.next_follow_at;
+        if (r.at != null) data.at = r.at;
+        out.push({ user_id: r.user_id, kind: r.kind, id: r.id, deleted: false, data: data });
+      });
+      if (rows.length < TEAM_PAGE) return out;
+    }
+    throw new Error('团队记录超过 ' + (TEAM_PAGE * TEAM_MAX_PAGES) + ' 条，看板无法完整统计');
   }
 
   /* ---------- 测试连接：填完配置先探一下 ---------- */

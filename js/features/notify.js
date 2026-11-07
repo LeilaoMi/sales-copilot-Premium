@@ -110,13 +110,19 @@ window.Notify = (function () {
    * 必须走 Service Worker 的 registration.showNotification()。以前异常被吞掉，安卓上永远不弹。
    * 有 SW 控制页面时优先走 SW（桌面也一样能用），没有才退回页面通知。
    * 返回 false 表示确定弹不出来（调用方据此不记「已提醒」，改走页面角标）。 */
-  function show(title, body) {
+  /* SW 这条路是异步的：调用时只能乐观返回 true。真弹不出来（showNotification 拒绝、
+   * sw.ready 一直不 resolve，比如 SW 已注销但页面还挂着 controller）时，退回页面通知；
+   * 页面通知也失败就调 onFail，让 check 撤销「已提醒」（CodeRabbit PR #21）。 */
+  const READY_TIMEOUT = 5000;
+  function show(title, body, onFail) {
     const opts = { body: body, tag: 'sales-copilot-followup', icon: 'assets/icons/icon-192.png', data: { view: 'customers' } };
     const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : null;
     if (sw && sw.controller && sw.ready) {
-      sw.ready
-        .then(r => r.showNotification(title, opts))
-        .catch(() => pageNotify(title, opts));
+      let timer = null;
+      const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('sw.ready timeout')), READY_TIMEOUT); });
+      Promise.race([sw.ready, timeout])
+        .then(r => { clearTimeout(timer); return r.showNotification(title, opts); })
+        .catch(() => { clearTimeout(timer); if (!pageNotify(title, opts) && onFail) onFail(); });
       return true;
     }
     return pageNotify(title, opts);
@@ -149,8 +155,16 @@ window.Notify = (function () {
     /* 同一天不重复轰炸：第一轮提醒过之后，当天剩下的就只做页面内角标 */
     const firstToday = last.date !== today();
 
+    let prevSent = null, prevLast = null;
+    try { prevSent = localStorage.getItem(LS_SENT); prevLast = localStorage.getItem(LS_LAST); } catch (e) {}
+    const undo = () => {
+      try {
+        if (prevSent === null) localStorage.removeItem(LS_SENT); else localStorage.setItem(LS_SENT, prevSent);
+        if (prevLast === null) localStorage.removeItem(LS_LAST); else localStorage.setItem(LS_LAST, prevLast);
+      } catch (e) {}
+    };
     if (granted() && firstToday) {
-      if (!show(titleOf(list), bodyOf(list))) return 0;
+      if (!show(titleOf(list), bodyOf(list), undo)) return 0;
     }
 
     markSent(list.map(x => x.id + '@' + x.at));

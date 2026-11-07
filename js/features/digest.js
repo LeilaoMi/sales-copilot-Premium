@@ -138,7 +138,7 @@ window.Digest = (function () {
   /* ---------- 金额与数量 ---------- */
   /* 审计 m26：以前缺「亿」，且「涉及金额」直接比数字——「50万」和「3000元」比出来 3000 更大。
    * 现在每条带上折算成元的 yuan，摘要按它取最大。外币不折算汇率，只按原数比。 */
-  const MONEY = /(\d+(?:\.\d+)?)\s*(亿|千万|百万|万|w|W|千|k|K|元|块钱|块|美金|美元| euro|欧元)/g;
+  const MONEY = /(\d+(?:\.\d+)?)\s*(亿|千万|百万|万|w|W|千|k|K|元|块钱|块|美金|美元|euro|欧元)/g;
   const UNIT_YUAN = { '亿': 1e8, '千万': 1e7, '百万': 1e6, '万': 1e4, w: 1e4, W: 1e4, '千': 1e3, k: 1e3, K: 1e3 };
   /* 「3月」「2026年」是日期不是数量（审计 m2）：月只认「个月」，年排除四位年份和「年…月」 */
   const COUNT = /(\d+(?:\.\d+)?)\s*(个月|个|套|台|人|家|店|条|年(?!\d{1,2}月)|期|次|份|张|把|箱|吨|米|平)/g;
@@ -240,7 +240,7 @@ window.Digest = (function () {
       let m;
       MONEY.lastIndex = 0;
       while ((m = MONEY.exec(t)) !== null) {
-        money.push({ num: Number(m[1]), unit: m[2], yuan: Number(m[1]) * (UNIT_YUAN[m[2]] || 1), text: t });
+        money.push({ num: Number(m[1]), unit: m[2] === 'euro' ? ' euro' : m[2], yuan: Number(m[1]) * (UNIT_YUAN[m[2]] || 1), text: t });
       }
       COUNT.lastIndex = 0;
       while ((m = COUNT.exec(t)) !== null) {

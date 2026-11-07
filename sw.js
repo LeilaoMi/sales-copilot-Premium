@@ -26,7 +26,7 @@
  */
 /* v4（2026-11-04 审计 M22）：知识库和 manifest 改成「先用缓存、后台更新」，
  * 旧 v3 里那份永不更新的 knowledge.json 借这次换版本清掉。 */
-const CACHE = 'sales-copilot-v7';
+const CACHE = 'sales-copilot-v8';
 const NET_TIMEOUT = 3000;   // 弱网（有信号没数据）时最多等 3 秒就先用缓存
 
 /* 预缓存清单：只在首次安装时用，目的是让「第一次离线打开」也有完整页面。
@@ -165,6 +165,6 @@ self.addEventListener('notificationclick', e => {
       if (view) c.postMessage({ type: 'sc-go', view: view });
       return c.focus();
     }
-    return clients.openWindow ? clients.openWindow('./') : null;
+    return clients.openWindow ? clients.openWindow(view ? './?view=' + encodeURIComponent(view) : './') : null;
   }));
 });

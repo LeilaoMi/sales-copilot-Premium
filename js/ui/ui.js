@@ -1053,7 +1053,7 @@
         const f = inp.files[0]; if (!f) return;
         const r = new FileReader();
         r.onload = () => {
-          try { S.importJSON(r.result); toast('导入成功', 'ok'); render(); }
+          try { const res = S.importJSON(r.result); toast(res && res.remapped ? '导入成功，' + res.remapped + ' 条旧记录换了新编号' : '导入成功', 'ok'); render(); }
           catch (err) { toast('导入失败：' + err.message, 'err'); }
         };
         r.readAsText(f);
@@ -1450,6 +1450,8 @@
         patch.space = readVal('sb-space');
         if (!patch.url || !patch.key) { toast('请填写 Project URL 和 anon key', 'err'); return; }
         if (patch.space.length < Sync.MIN_SPACE) { toast('空间名至少 ' + Sync.MIN_SPACE + ' 位，可点「随机生成」', 'err'); return; }
+        if (patch.space !== (Sync.cfg().space || '') && Sync.weakSpace && Sync.weakSpace(patch.space)
+          && !window.confirm('这个空间名字符太单一，别人可能猜到并读写你的数据。建议点「随机生成」。\n\n其他设备已经在用这个空间名的话，点「确定」继续。')) return;
       }
       Sync.saveCfg(patch);
       if (mode === 'off') {
@@ -1604,8 +1606,8 @@
         onSubmit: d => {
           try {
             const json = decodeURIComponent(escape(atob(d.code.trim())));
-            S.importJSON(json);
-            closeModal(); toast('导入成功', 'ok'); render();
+            const res = S.importJSON(json);
+            closeModal(); toast(res && res.remapped ? '导入成功，' + res.remapped + ' 条旧记录换了新编号' : '导入成功', 'ok'); render();
           } catch (e) { toast('导入失败：' + e.message, 'err'); }
         }
       });
@@ -2143,6 +2145,14 @@
       });
     }
     window.addEventListener('sc-go', ev => { if (ev.detail === 'customers') switchView('customers'); });
+    /* 没有打开的窗口时，SW 用 ./?view=customers 新开（sw.js notificationclick） */
+    try {
+      const qs = new URLSearchParams(location.search);
+      if (qs.get('view') === 'customers') {
+        switchView('customers');
+        history.replaceState(null, '', location.pathname + location.hash);
+      }
+    } catch (e) {}
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

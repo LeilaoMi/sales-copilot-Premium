@@ -10,6 +10,7 @@
  *   m13 Azure OpenAI 用 api-key 头并带 api-version；请求有超时
  *   m24 健康度按商机算接触，不被同客户的其他商机带热
  *   m26 temperature 0 不被吞；陪练历史有上限；会话情报认「亿」并按元比大小；intentLabel 认 delivery
+ *   CodeRabbit PR #21（2026-11-07）：非法日期不打挂看板、成交周期不从 1970 算、100euro、剩余天数含今天
  * ============================================================ */
 const fs = require('fs');
 const path = require('path');
@@ -131,6 +132,26 @@ const DAY = 864e5;
   S.insert('followups', { customerId: c.id, dealId: dHot.id, type: '电话', at: new Date(Date.now() - DAY).toISOString(), content: '聊热单' });
   const hHot = Health.of(S.get('deals', dHot.id)), hCold = Health.of(S.get('deals', dCold.id));
   check('只给热单记的跟进，不让冷单也「刚联系过」', hCold.score < hHot.score, [hHot.level, hHot.score, hCold.level, hCold.score]);
+
+  section('CodeRabbit PR #21');
+  check('diffDays 对非法日期返回 null 而不是抛错', (() => { try { return S.diffDays('abc') === null; } catch (e) { return false; } })());
+  check('daysBetween 任一端非法返回 null', S.daysBetween('abc', '2026-11-01') === null);
+  S.reset(true);
+  const bc = S.insert('customers', { name: '坏日期客户', nextFollowAt: 'not-a-date' });
+  S.insert('deals', { customerId: bc.id, title: '坏日期单', amount: 100, stage: 'quote', expectedClose: '明天吧' });
+  S.insert('deals', { customerId: bc.id, title: '坏创建日赢单', amount: 100, stage: 'won', createdAt: 'garbage', closedAt: new Date().toISOString() });
+  S.insert('deals', { customerId: bc.id, title: '正常赢单', amount: 100, stage: 'won', createdAt: new Date(Date.now() - 10 * DAY).toISOString(), closedAt: new Date().toISOString() });
+  let st2 = null, e2 = null;
+  try { st2 = S.stats(); } catch (e) { e2 = e; }
+  check('有非法日期时 stats() 照常出结果', !e2 && !!st2, e2 && e2.message);
+  const cyc = st2 && (st2.avgCycle != null ? st2.avgCycle : null);
+  check('成交周期跳过非法 createdAt（只算正常那单约 10 天）', cyc >= 9 && cyc <= 11, cyc);
+  const eu = Digest.analyze('王总：首期 100euro', { me: ['我'], them: ['王总'], now: new Date(2026, 10, 4) });
+  check('识别「100euro」（无空格）', eu.money.some(m => m.num === 100 && /euro/.test(m.unit)), eu.money.map(m => m.num + m.unit));
+  const viewsSrc = fs.readFileSync(path.join(root, 'js/ui/views.js'), 'utf8');
+  const storeSrc = fs.readFileSync(path.join(root, 'js/core/store.js'), 'utf8');
+  check('晨报「本月剩 N 天」含今天', /本月剩 \$\{f\.left \+ 1\} 天/.test(viewsSrc));
+  check('目标建议两档都按含今天说', (storeSrc.match(/本月剩 \$\{left \+ 1\} 天（含今天）/g) || []).length === 2);
 
   console.log('\n' + (fail === 0 ? 'ALL MINOR TESTS PASSED' : 'FAILURES: ' + fail));
   process.exit(fail === 0 ? 0 : 1);

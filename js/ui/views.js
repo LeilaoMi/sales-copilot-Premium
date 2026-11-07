@@ -203,7 +203,7 @@ window.Views = (function () {
     const f = st.forecast;
     const d = new Date();
     const wk = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
-    const dateLine = `${d.getMonth() + 1} 月 ${d.getDate()} 日 周${wk} · 本月剩 ${f.left} 天`;
+    const dateLine = `${d.getMonth() + 1} 月 ${d.getDate()} 日 周${wk} · 本月剩 ${f.left + 1} 天`;
 
     /* 计数摘要：只报数，不展开 */
     const bits = [];
