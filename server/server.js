@@ -381,7 +381,7 @@ const server = http.createServer((req, res) => {
 
   // 静态文件
   let file = path.join(ROOT, pathname === '/' ? 'index.html' : pathname);
-  if (!file.startsWith(ROOT)) return send(res, 403, { error: '禁止访问' });
+  if (file !== ROOT && !file.startsWith(ROOT + path.sep)) return send(res, 403, { error: '禁止访问' });
   if (isPrivatePath(pathname)) return send(res, 403, { error: '禁止访问' });
   /* 不在白名单里：带扩展名的当成文件请求，404；不带扩展名的当成前端路由，回 index.html */
   if (!isPublicPath(pathname)) {
