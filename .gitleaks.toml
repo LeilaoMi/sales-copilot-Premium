@@ -1,0 +1,26 @@
+# gitleaks config, read automatically by the shared Security workflow
+# (LeilaoMi/security-workflows). Keep [extend] useDefault = true:
+# without it the default rules are replaced and nothing is detected.
+
+[extend]
+useDefault = true
+
+[allowlist]
+# Supabase publishable keys (sb_publishable_...) are public by
+# design: Supabase ships them in client-side code, and the app's
+# own comment in js/core/auth.js says the same ("publishable key
+# 本来就是公开值，随前端分发给每个访问者"). All 5 history findings
+# + all 3 working-tree findings verified locally (gitleaks
+# v8.30.1, 2026-11-09) carry the sb_publishable_ prefix: the
+# keepalive workflow's premium/test project keys and the app's
+# DEFAULT_CLOUD key (incl. one older rotated value in history).
+# This regex covers any publishable-key value; it does NOT cover
+# sb_secret_ keys or JWTs (eyJ...), which are still flagged.
+# Anchored ^...$ on purpose (CodeRabbit review): the global
+# allowlist is applied to the extracted secret, so an unanchored
+# pattern would also suppress a composite secret that merely
+# contains sb_publishable_ as a substring. Only a secret that
+# IS exactly a publishable key is suppressed.
+# Keep it narrow: do not broaden it to other key formats without
+# re-verifying what the new findings actually are.
+regexes = ['''^sb_publishable_[A-Za-z0-9_-]+$''']
