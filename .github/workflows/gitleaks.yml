@@ -1,3 +1,6 @@
+# sales-copilot-Premium: repo-specific Gitleaks config (see the
+# [allowlist] regexes in the env block below). The generic file has
+# no allowlist; this repo's Supabase publishable keys need one.
 name: Gitleaks
 # Detect hardcoded secrets in git history and code.
 # Two jobs:
@@ -41,6 +44,30 @@ on:
 # PR comments are disabled, so it needs no write permission).
 permissions:
   contents: read
+env:
+  # Shared by all three scans in this file (CLI steps and the action
+  # both follow the gitleaks config precedence, which includes
+  # GITLEAKS_CONFIG_TOML). [extend] useDefault is required: a custom
+  # config without it REPLACES the default rules and nothing is
+  # detected at all (verified locally against gitleaks v8.30.1).
+  GITLEAKS_CONFIG_TOML: |
+    [extend]
+    useDefault = true
+
+    [allowlist]
+    # Supabase publishable keys (sb_publishable_...) are public by
+    # design: Supabase ships them in client-side code, and the app's
+    # own comment in js/core/auth.js says the same ("publishable key
+    # 本来就是公开值，随前端分发给每个访问者"). All 5 history findings
+    # + all 3 working-tree findings verified locally (gitleaks
+    # v8.30.1, 2026-11-09) carry the sb_publishable_ prefix: the
+    # keepalive workflow's premium/test project keys and the app's
+    # DEFAULT_CLOUD key (incl. one older rotated value in history).
+    # This regex covers any publishable-key value; it does NOT cover
+    # sb_secret_ keys or JWTs (eyJ...), which are still flagged.
+    # Keep it narrow: do not broaden it to other key formats without
+    # re-verifying what the new findings actually are.
+    regexes = ['''sb_publishable_[A-Za-z0-9_-]+''']
 jobs:
   gitleaks:
     runs-on: ubuntu-latest
