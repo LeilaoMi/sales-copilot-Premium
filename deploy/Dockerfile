@@ -20,7 +20,7 @@
 # data/ 是真实客户姓名电话，绝不能被打进镜像 layers 里跟着推到仓库去。
 
 # node 20 已于 2026-04 停止维护
-FROM node:22-alpine
+FROM node:25-alpine
 
 WORKDIR /app
 
