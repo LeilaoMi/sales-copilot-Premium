@@ -11,7 +11,7 @@ updates:
       - minor
       - patch
   cooldown:
-    default-days: 3
+    default-days: 7
 - package-ecosystem: npm
   directory: /deploy/edgeone
   schedule:
@@ -23,7 +23,7 @@ updates:
       - minor
       - patch
   cooldown:
-    default-days: 3
+    default-days: 7
 - package-ecosystem: npm
   directory: /tools/rls
   schedule:
@@ -35,7 +35,7 @@ updates:
       - minor
       - patch
   cooldown:
-    default-days: 3
+    default-days: 7
 - package-ecosystem: docker
   directory: /deploy
   schedule:
@@ -47,7 +47,7 @@ updates:
       - minor
       - patch
   cooldown:
-    default-days: 3
+    default-days: 7
 - package-ecosystem: github-actions
   directory: /
   schedule:
@@ -57,4 +57,4 @@ updates:
       patterns:
       - '*'
   cooldown:
-    default-days: 3
+    default-days: 7
