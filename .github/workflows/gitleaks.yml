@@ -65,9 +65,14 @@ env:
     # DEFAULT_CLOUD key (incl. one older rotated value in history).
     # This regex covers any publishable-key value; it does NOT cover
     # sb_secret_ keys or JWTs (eyJ...), which are still flagged.
+    # Anchored ^...$ on purpose (CodeRabbit review): the global
+    # allowlist is applied to the extracted secret, so an unanchored
+    # pattern would also suppress a composite secret that merely
+    # contains sb_publishable_ as a substring. Only a secret that
+    # IS exactly a publishable key is suppressed.
     # Keep it narrow: do not broaden it to other key formats without
     # re-verifying what the new findings actually are.
-    regexes = ['''sb_publishable_[A-Za-z0-9_-]+''']
+    regexes = ['''^sb_publishable_[A-Za-z0-9_-]+$''']
 jobs:
   gitleaks:
     runs-on: ubuntu-latest
