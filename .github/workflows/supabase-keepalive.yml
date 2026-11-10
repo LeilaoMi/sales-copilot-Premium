@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  actions: write   # 只给 stay-enabled 调「启用工作流」接口用
 
 jobs:
   ping:
@@ -81,6 +80,8 @@ jobs:
 
   stay-enabled:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write   # 只给 stay-enabled 调「启用工作流」接口用
     steps:
       - name: 重置 60 天无活动停用计时
         env:
