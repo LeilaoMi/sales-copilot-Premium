@@ -13,7 +13,7 @@
  *   3. **没 HTTPS 就没有通知**（浏览器限制，localhost 除外）。
  *      本地双击打开时静默跳过，别弹一堆报错吓唬人。
  * ============================================================ */
-window.Notify = (function () {
+window.Notify = (() => {
   const S = Store;
   const LS_LAST = 'sc.notify.last';      // 上次提醒的日期
   const LS_SENT = 'sc.notify.sent';      // 今天已经提醒过的条目
@@ -130,7 +130,7 @@ window.Notify = (function () {
   function pageNotify(title, opts) {
     try {
       const n = new Notification(title, opts);
-      n.onclick = function () { goCustomers(); n.close(); };
+      n.onclick = () => { goCustomers(); n.close(); };
       return true;
     } catch (e) {
       return false;

@@ -12,7 +12,7 @@
  *   3. 冲突策略：Last-Write-Wins（比 updatedAt），删除用墓碑（deleted 标记）。
  *   4. 「谁能看见谁」交给数据库 RLS，前端不做权限判断——前端判断绕得过去，RLS 绕不过去。
  * ============================================================ */
-window.Sync = (function () {
+window.Sync = (() => {
   const S = Store;
   const PUSH_DELAY = 4000;   // 本地变更后 4 秒推送
   const PULL_INTERVAL = 60000; // 每 60 秒拉取一次

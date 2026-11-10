@@ -13,7 +13,7 @@
  *
  * 存储：./data/store-<空间哈希>.json，每个令牌一个文件；备份在 ./data/backups/（不可写时退化为内存，并打印警告）
  * ============================================================ */
-'use strict';
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -66,7 +66,7 @@ function probeWritable() {
     return false;
   }
 }
-let writable = probeWritable();
+const writable = probeWritable();
 if (!writable && /^(1|true|yes)$/i.test(process.env.REQUIRE_DISK || '')) {
   console.error('REQUIRE_DISK 已开启，数据目录不可写时拒绝启动。容器部署请检查卷的属主（见 deploy/Dockerfile 顶部说明）。');
   process.exit(1);

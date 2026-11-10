@@ -15,7 +15,7 @@
  *     而脏数据会污染健康度判断和回款预测，比不记更糟。
  *  3. **内容保留原文**。用户写的话就是最真实的记录，硬删关键词反而丢信息。
  * ============================================================ */
-window.QuickLog = (function () {
+window.QuickLog = (() => {
 
   /* ---------- 跟进类型关键词 ---------- */
   const TYPE_WORDS = [
@@ -48,7 +48,7 @@ window.QuickLog = (function () {
     return (hi == null || lo == null) ? NaN : hi * 10 + lo;
   }
   function normalizeNums(t) {
-    return t.replace(/([零一二两三四五六七八九十]{1,3})(?=个?(?:天|日|周|星期|礼拜|月)[后内以])/g, function (m0, c) {
+    return t.replace(/([零一二两三四五六七八九十]{1,3})(?=个?(?:天|日|周|星期|礼拜|月)[后内以])/g, (m0, c) => {
       const n = cnToNum(c);
       return isNaN(n) ? m0 : String(n);
     });
@@ -88,7 +88,7 @@ window.QuickLog = (function () {
     // 只剩今天类时，看它离意图词多远：>6字多半是行动时间（「今天去了王总那儿，再联系」），宁可空着
     const TODAY_WORDS = ['大后天', '今天', '今日', '当天', '明天', '明日', '后天'];
     let lastPos = -1, lastW = '';
-    TODAY_WORDS.forEach(function (w) {
+    TODAY_WORDS.forEach((w) => {
       const p = near16.lastIndexOf(w);
       if (p >= 0 && p > lastPos) { lastPos = p; lastW = w; }
     });

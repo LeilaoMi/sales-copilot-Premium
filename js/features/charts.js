@@ -1,7 +1,7 @@
 /* ============================================================
  * 销冠助手 · 图表层（纯手写 SVG，零依赖、断网可用）
  * ============================================================ */
-window.Charts = (function () {
+window.Charts = (() => {
   const E = Store.escapeHtml;
 
   /* 环形进度：目标完成率 */
@@ -101,7 +101,7 @@ window.Charts = (function () {
 
   function niceCeil(v) {
     if (v <= 0) return 1;
-    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    const mag = 10 ** Math.floor(Math.log10(v));
     const norm = v / mag;
     const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
     return step * mag;

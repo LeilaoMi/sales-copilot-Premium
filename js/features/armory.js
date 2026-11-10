@@ -22,8 +22,8 @@
  * 数据质量声明：条目由 AI 辅助整理生成，用前自己过一遍脑子，
  *   不确定的说法（金额、案例）以你自己客户和产品的实际情况为准。
  * ============================================================ */
-window.Armory = (function () {
-  'use strict';
+window.Armory = (() => {
+  
 
   let items = null;      // null = 未加载；[] = 加载了但为空
   let loading = false;
@@ -196,7 +196,7 @@ window.Armory = (function () {
   /* ---------- 事件：卡片内委托，不进 ui.js 的 data-action 分发 ----------
    * 军火库的交互全部自管（同 sparring.js 的先例），
    * ui.js 不需要知道这个模块存在。 */
-  document.addEventListener('click', function (ev) {
+  document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-kb-act]');
     if (!el) return;
     const act = el.getAttribute('data-kb-act');

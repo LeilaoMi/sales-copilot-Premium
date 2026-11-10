@@ -17,8 +17,8 @@
  *   另外：一万条通用话术不如五十条自己攒的。所以检索之外，
  *   更重要的是「打赢一仗能沉淀成自己的话术」——见 addFromDeal()。
  * ============================================================= */
-window.Playbook = (function () {
-  'use strict';
+window.Playbook = (() => {
+  
 
   /* ---------- 中文二元切分 ----------
    * 中文没有空格，词边界靠词典太重。二元切分（bigram）是本地检索里
@@ -86,7 +86,7 @@ window.Playbook = (function () {
   };
 
   /* 反向索引：词 → 意图槽，避免每次检索都全表扫词典 */
-  const WORD2INTENT = (function () {
+  const WORD2INTENT = (() => {
     const m = Object.create(null);
     Object.keys(INTENT).forEach(k => {
       INTENT[k].forEach(w => {

@@ -18,6 +18,7 @@ global.window = global; global.self = global;
 global.document = { addEventListener() {}, getElementById() { return null; }, querySelector() { return null; }, querySelectorAll() { return []; } };
 global.addEventListener = () => {};
 ['js/features/playbook.js', 'js/core/store.js', 'js/features/health.js']
+  // biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
   .forEach(f => (0, eval)(fs.readFileSync(path.join(root, f), 'utf8')));
 Store.load();
 

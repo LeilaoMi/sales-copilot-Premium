@@ -35,6 +35,7 @@ global.addEventListener = () => {};
 ['js/features/playbook.js', 'js/features/armory.js', 'js/core/store.js', 'js/core/auth.js', 'js/features/health.js',
   'js/features/quicklog.js', 'js/features/digest.js', 'js/features/report.js', 'js/features/coach.js', 'js/features/charts.js',
   'js/ui/views.js', 'js/features/ai.js', 'js/features/sparring.js', 'js/core/sync.js', 'js/features/notify.js', 'js/core/team.js'
+// biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
 ].forEach(f => (0, eval)(fs.readFileSync(path.join(root, f), 'utf8')));
 
 const TAG = '<img src=x onerror=PWN>';

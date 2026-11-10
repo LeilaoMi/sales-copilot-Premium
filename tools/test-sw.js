@@ -117,6 +117,7 @@ function fireFetch(env, url) {
     Object.defineProperty(global, 'navigator', { configurable: true, value: { onLine: true, serviceWorker: {
       controller: {}, ready: Promise.resolve({ showNotification: async (t, o) => { shown = { t, o }; } }), addEventListener() {}
     } } });
+    // biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
     ['js/features/playbook.js', 'js/core/store.js', 'js/features/notify.js'].forEach(f => (0, eval)(fs.readFileSync(path.join(root, f), 'utf8')));
     Store.load();
     Store.state.customers = [{ id: 'c1', name: '甲公司', nextFollowAt: Store.todayStr(), updatedAt: 1 }];
@@ -128,7 +129,6 @@ function fireFetch(env, url) {
   }
 
   section('CodeRabbit PR #21：SW 弹不出且页面通知也失败时不记「已提醒」');
-  {
     localStorage.removeItem('sc.notify.sent'); localStorage.removeItem('sc.notify.last');
     Object.defineProperty(global, 'navigator', { configurable: true, value: { onLine: true, serviceWorker: {
       controller: {}, ready: Promise.resolve({ showNotification: async () => { throw new Error('denied'); } }), addEventListener() {}
@@ -137,7 +137,6 @@ function fireFetch(env, url) {
     Notify.check(false);
     await sleep(20);
     check('已提醒记录被撤销（下次还会再提醒）', localStorage.getItem('sc.notify.last') === null && localStorage.getItem('sc.notify.sent') === null);
-  }
 
   section('M14 sw.js 处理通知点击');
   {

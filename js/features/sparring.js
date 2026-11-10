@@ -18,8 +18,8 @@
  *   自己在对练里琢磨出来的说法，比抄来的 48 条值钱得多
  *   （这个判断和 playbook.js 里「战后沉淀」是同一个）。
  * ============================================================ */
-window.Sparring = (function () {
-  'use strict';
+window.Sparring = (() => {
+  
   const S = window.Store;
 
   /* ---------- 难度 ----------
@@ -66,7 +66,7 @@ window.Sparring = (function () {
       if (window.Store && Store.list) {
         const all = Store.list('scripts') || [];
         const out = [];
-        all.forEach(function (it) {
+        all.forEach((it) => {
           if (!it || !it.title) return;
           const sc = toScene(it.category, it.title, it.tags, it.content);
           if (sc) out.push(sc);
@@ -77,7 +77,7 @@ window.Sparring = (function () {
     const P = window.Playbook;
     if (!P || !Array.isArray(P.SEED)) return [];
     const out = [];
-    P.SEED.forEach(function (item) {
+    P.SEED.forEach((item) => {
       const sc = toScene(item[0], item[1], item[2], item[3]);
       if (sc) out.push(sc);
     });
@@ -423,7 +423,7 @@ window.Sparring = (function () {
   function bind() {
     if (bound) return;
     bound = true;
-    document.addEventListener('click', async function (ev) {
+    document.addEventListener('click', async (ev) => {
       const el = ev.target && ev.target.closest ? ev.target.closest('[data-spar]') : null;
       if (!el) return;
       const act = el.getAttribute('data-spar');
@@ -431,7 +431,7 @@ window.Sparring = (function () {
       if (act === 'start') {
         const scene = (document.getElementById('spar-scene') || {}).value || '';
         const level = (document.getElementById('spar-level') || {}).value || 'normal';
-        guard(async function () {
+        guard(async () => {
           start(scene, level);
           await opening();
         });
@@ -441,7 +441,7 @@ window.Sparring = (function () {
         const text = box ? box.value : '';
         if (!String(text).trim()) return;
         uiState.draft = '';
-        await guard(async function () {
+        await guard(async () => {
           await say(text);
           /* 每三轮自动点评一次：练完不点评等于没练 */
           const mine = session ? session.turns.filter(t => t.role === 'me').length : 0;
@@ -451,10 +451,10 @@ window.Sparring = (function () {
         });
       }
       else if (act === 'review') {
-        guard(async function () { await review(); });
+        guard(async () => { await review(); });
       }
       else if (act === 'finish') {
-        guard(async function () {
+        guard(async () => {
           const sum = await finish();
           uiState.result = (sum && sum.final) || '这场没有调用 AI（离线模式），没法自动复盘。';
         });
@@ -494,9 +494,9 @@ window.Sparring = (function () {
  *
  * 自包含模块不该指望别人记得帮你接线。事件是委托在 document 上的，
  * 跟画没画出来无关，所以这里立刻绑就行。 */
-(function () {
+(() => {
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { window.Sparring.bind(); });
+    document.addEventListener('DOMContentLoaded', () => { window.Sparring.bind(); });
   } else {
     window.Sparring.bind();
   }
