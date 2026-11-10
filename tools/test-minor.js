@@ -25,6 +25,7 @@ global.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v
 global.window = global; global.self = global;
 global.document = { addEventListener() {}, getElementById() { return null; }, querySelector() { return null; }, querySelectorAll() { return []; } };
 global.addEventListener = () => {};
+// biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
 const load = f => (0, eval)(fs.readFileSync(path.join(root, f), 'utf8'));
 ['js/features/playbook.js', 'js/core/store.js', 'js/features/health.js', 'js/features/quicklog.js', 'js/features/digest.js'].forEach(load);
 const S = Store;

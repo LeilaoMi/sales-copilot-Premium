@@ -15,7 +15,7 @@
  * 「需要领导支持」这种段落我没有数据，就不生成——
  * 让销售自己填，比替他编一句空话强。
  * ============================================================ */
-window.Report = (function () {
+window.Report = (() => {
   /* 用 window.Store 而不是裸 Store：这样纯 Node 环境下也能 require 进来跑测试，
    * 不必先起浏览器。前提是 store.js 先加载（index.html 里它排第一）。 */
   const S = window.Store;

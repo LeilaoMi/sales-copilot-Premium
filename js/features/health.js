@@ -9,7 +9,7 @@
  *  3. 每条提示必须带一个动作，而且要能一键做到。
  *     只报问题不给出口，那就不是助手，是监工。
  * ============================================================ */
-window.Health = (function () {
+window.Health = (() => {
 
   const DAY = 86400000;
 
@@ -309,7 +309,7 @@ window.Health = (function () {
     }
 
     /* ---- 信号 3：临期 / 过期 ---- */
-    let dd = window.Store.diffDays(deal.expectedClose);
+    const dd = window.Store.diffDays(deal.expectedClose);
     if (dd !== null && deal.expectedClose) {
       let pen = 0;
       let text = '';

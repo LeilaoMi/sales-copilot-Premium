@@ -20,7 +20,7 @@
  * 永远不会出现「改了这边忘了那边」。
  * ============================================================ */
 /* ===== SYNC-CORE-BEGIN ===== */
-'use strict';
+
 
   /* 参与同步的集合。settings / deviceId 单独处理（见 merge 末尾） */
   const KEYS = ['customers', 'deals', 'followups', 'scripts'];

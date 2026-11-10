@@ -14,7 +14,7 @@
  *   而「数据各自独立」不靠前端守规矩，靠数据库 RLS。
  *   就算有人改了前端代码，拿着 anon key 去直接查库，也只查得到自己的东西。
  * ============================================================ */
-window.Auth = (function () {
+window.Auth = (() => {
   const S = window.Store;
   const LS = 'sc.auth.session';
 

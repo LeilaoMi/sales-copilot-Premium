@@ -2,7 +2,7 @@
  * 销冠助手 · 数据层
  * 数据保存在浏览器本地（localStorage）。本文件不发网络请求；云同步在 sync.js / auth.js。
  * ============================================================ */
-window.Store = (function () {
+window.Store = (() => {
 
   /* 应用版本号。发版时与 package.json、CHANGELOG.md 一起改，tools/test-version.js 校验三处一致 */
   const VERSION = '1.0.2';
@@ -226,7 +226,7 @@ window.Store = (function () {
       state.scripts.forEach(x => {
         if (x && x.builtin && !freshTitles[x.title] && !x.deleted) { x.deleted = true; x.updatedAt = nowTomb; }
       });
-      let keep = state.scripts.slice();
+      const keep = state.scripts.slice();
 
       /* 第三步：补齐还缺的内置话术 */
       const have = {};

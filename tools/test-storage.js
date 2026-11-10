@@ -48,6 +48,7 @@ function boot(opts) {
     }
   } });
   global.document = { addEventListener() {} };
+  // biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
   (0, eval)(fs.readFileSync(path.join(root, 'js/core/store.js'), 'utf8'));
   ctx.events = [];
   if (Store.on) Store.on((t, i) => ctx.events.push({ t, i }));
@@ -122,6 +123,7 @@ const tick = () => new Promise(r => setTimeout(r, 5));
     localStorage.setItem('sc.auth.session', JSON.stringify({
       access_token: 'old', refresh_token: 'r', expires_at: Date.now() - 1000, user_id: 'u1', email: 'a@b.c'
     }));
+    // biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
     (0, eval)(fs.readFileSync(path.join(root, 'js/core/auth.js'), 'utf8'));
     Auth.init && (() => { try { Auth.init(); } catch (e) {} })();
   }
@@ -205,6 +207,7 @@ const tick = () => new Promise(r => setTimeout(r, 5));
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body) };
   };
+  // biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
   (0, eval)(fs.readFileSync(path.join(root, 'js/core/auth.js'), 'utf8'));
   try { Auth.init && Auth.init(); } catch (e) {}
   await Auth.loadProfile(true);

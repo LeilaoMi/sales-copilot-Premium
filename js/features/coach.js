@@ -15,8 +15,8 @@
  * 依赖：Playbook（意图识别 + 检索）、Store（数据）
  * 无 IO、无 AI、无网络，纯本地计算。
  */
-window.Coach = (function () {
-  'use strict';
+window.Coach = (() => {
+  
 
   const P = window.Playbook;
   const S = window.Store;

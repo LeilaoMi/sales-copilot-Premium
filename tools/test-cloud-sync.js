@@ -61,6 +61,7 @@ global.Auth = {
   }
 };
 
+// biome-ignore lint/security/noGlobalEval: 测试脚本用 eval 加载浏览器端源码
 ['js/core/store.js', 'js/core/sync.js'].forEach(f => (0, eval)(fs.readFileSync(path.join(root, f), 'utf8')));
 
 (async () => {

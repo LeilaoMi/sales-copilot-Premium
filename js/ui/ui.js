@@ -1,7 +1,7 @@
 /* ============================================================
  * 销冠助手 · 交互层
  * ============================================================ */
-(function () {
+(() => {
   const S = Store, V = Views, E = S.escapeHtml;
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
@@ -1711,6 +1711,7 @@
        * 话术军火里它是**客户原话**（核心输入，不是可选的补充），
        * 提示词写错用户就会留空，生成出来一堆废话。 */
       else if (id === 'ai-scenario') {
+        filters.ai.scenario = e.target.value;
         const ta = $('#ai-extra');
         const lab = ta && ta.closest('.field') ? ta.closest('.field').querySelector('label') : null;
         if (e.target.value === 'advise') {
@@ -1729,7 +1730,6 @@
          * 漏一个就会出现「明明签了单却没让我记经验」的困惑 */
         maybeDebrief(S.get('deals', e.target.dataset.id));
       }
-      else if (id === 'ai-scenario') { filters.ai.scenario = e.target.value; }
       else if (id === 'ai-customer') { filters.ai.customerId = e.target.value; }
       else if (id === 'sync-mode') { renderSyncStatus(); }
       else if (id === 'health-sensitivity') {
