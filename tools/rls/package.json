@@ -7,7 +7,7 @@
     "test": "node run.mjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.15"
+    "@electric-sql/pglite": "0.5.16"
   },
   "license": "UNLICENSED"
 }
